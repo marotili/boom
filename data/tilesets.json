@@ -1,0 +1,98 @@
+{
+	"tileset": [
+		{
+		"name":"boom",
+		"filename":"boom.png",
+		"base_directory":"boom",
+		 "group_data": {
+				"Blue": {
+					  "origin": [16, 16]
+					, "boundaries": {
+			  		}
+                                    , "trim":false
+				},
+                     "ExplWall": {
+                         "origin": [16, 16]
+                         , "boundaries": {}
+                         , "trim": false
+                     },
+                     "ExplRound": {
+                         "origin": [16, 16]
+                         , "boundaries": {}
+                         , "trim": false
+                     }
+			},
+		 "derived_data" : [],
+		 "source_data": [
+			    { "tileId":"blue_mid", "filename":"textures/character/blue/blue_mid.png", "size":32, "group": "Blue"}
+			  , { "tileId":"blue_buttom", "filename":"textures/character/blue/blue_bottom.png", "size":32, "group": "Blue"}
+			  , { "tileId":"blue_gun", "filename":"textures/character/blue/blue_top_standard_gun.png", "size":32, "group": "Blue"}
+
+			  , { "tileId":"exp01", "filename":"textures/explosions/round/exp01.png", "size":32, "group": "ExplRound"}
+			  , { "tileId":"exp02", "filename":"textures/explosions/round/exp02.png", "size":32, "group": "ExplRound"}
+			  , { "tileId":"exp03", "filename":"textures/explosions/round/exp03.png", "size":32, "group": "ExplRound"}
+			  , { "tileId":"exp04", "filename":"textures/explosions/round/exp04.png", "size":32, "group": "ExplRound"}
+			  , { "tileId":"exp05", "filename":"textures/explosions/round/exp05.png", "size":32, "group": "ExplRound"}
+			  , { "tileId":"exp06", "filename":"textures/explosions/round/exp06.png", "size":32, "group": "ExplRound"}
+			  , { "tileId":"exp07", "filename":"textures/explosions/round/exp07.png", "size":32, "group": "ExplRound"}
+			  , { "tileId":"exp08", "filename":"textures/explosions/round/exp08.png", "size":32, "group": "ExplRound"}
+			  , { "tileId":"exp09", "filename":"textures/explosions/round/exp09.png", "size":32, "group": "ExplRound"}
+			  , { "tileId":"exp10", "filename":"textures/explosions/round/exp10.png", "size":32, "group": "ExplRound"}
+			  , { "tileId":"exp11", "filename":"textures/explosions/round/exp11.png", "size":32, "group": "ExplRound"}
+			  , { "tileId":"exp12", "filename":"textures/explosions/round/exp12.png", "size":32, "group": "ExplRound"}
+
+			  , { "tileId":"expWall01", "filename":"textures/explosions/wall/expl_wall_01.png", "size":32, "group": "ExplWall"}
+			  , { "tileId":"expWall02", "filename":"textures/explosions/wall/expl_wall_02.png", "size":32, "group": "ExplWall"}
+			  , { "tileId":"expWall03", "filename":"textures/explosions/wall/expl_wall_03.png", "size":32, "group": "ExplWall"}
+			  , { "tileId":"expWall04", "filename":"textures/explosions/wall/expl_wall_04.png", "size":32, "group": "ExplWall"}
+			  , { "tileId":"expWall05", "filename":"textures/explosions/wall/expl_wall_05.png", "size":32, "group": "ExplWall"}
+			  , { "tileId":"expWall06", "filename":"textures/explosions/wall/expl_wall_06.png", "size":32, "group": "ExplWall"}
+			  , { "tileId":"expWall07", "filename":"textures/explosions/wall/expl_wall_07.png", "size":32, "group": "ExplWall"}
+			  , { "tileId":"expWall08", "filename":"textures/explosions/wall/expl_wall_08.png", "size":32, "group": "ExplWall"}
+			  , { "tileId":"expWall09", "filename":"textures/explosions/wall/expl_wall_09.png", "size":32, "group": "ExplWall"}
+			  , { "tileId":"expWall10", "filename":"textures/explosions/wall/expl_wall_10.png", "size":32, "group": "ExplWall"}
+			  , { "tileId":"expWall11", "filename":"textures/explosions/wall/expl_wall_11.png", "size":32, "group": "ExplWall"}
+			  , { "tileId":"expWall12", "filename":"textures/explosions/wall/expl_wall_12.png", "size":32, "group": "ExplWall"}
+			  , { "tileId":"expWall13", "filename":"textures/explosions/wall/expl_wall_13.png", "size":32, "group": "ExplWall"}
+			  , { "tileId":"expWall14", "filename":"textures/explosions/wall/expl_wall_14.png", "size":32, "group": "ExplWall"}
+			  , { "tileId":"expWall15", "filename":"textures/explosions/wall/expl_wall_15.png", "size":32, "group": "ExplWall"}
+			  , { "tileId":"expWall16", "filename":"textures/explosions/wall/expl_wall_16.png", "size":32, "group": "ExplWall"}
+			  , { "tileId":"expWall18", "filename":"textures/explosions/wall/expl_wall_18.png", "size":32, "group": "ExplWall"}
+
+			  , { "tileId":"floorSteel", "filename":"textures/floor/floor_steel.png", "size":32, "group": "ExplWall"}
+			  , { "tileId":"wallBroken", "filename":"textures/floor/wall_broken.png", "size":32, "group": "ExplWall"}
+
+			  , { "tileId":"bullet", "filename":"textures/shots/bullet.png", "size":32, "group": "ExplWall"}
+			  , { "tileId":"canonball", "filename":"textures/shots/canonball.png", "size":32, "group": "ExplWall"}
+			  , { "tileId":"knoedl", "filename":"textures/shots/knoedl.png", "size":32, "group": "ExplWall"}
+			  , { "tileId":"laser", "filename":"textures/shots/laser.png", "size":32, "group": "ExplWall"}
+			  , { "tileId":"rocket_1", "filename":"textures/shots/rocket_1.png", "size":32, "group": "ExplWall"}
+			  , { "tileId":"rocket_2", "filename":"textures/shots/rocket_2.png", "size":32, "group": "ExplWall"}
+			  , { "tileId":"rocket_smoke_particle", "filename":"textures/shots/rocket_smoke_particle.png", "size":32, "group": "ExplWall"}
+
+			  , { "tileId":"wallBasic", "filename":"textures/wall/wall_simple/wall_basic.png", "size":32, "group": "ExplWall"}
+			  , { "tileId":"wallE", "filename":"textures/wall/wall_simple/wall_E.png", "size":32, "group": "ExplWall"}
+			  , { "tileId":"wallN", "filename":"textures/wall/wall_simple/wall_N.png", "size":32, "group": "ExplWall"}
+			  , { "tileId":"wallW", "filename":"textures/wall/wall_simple/wall_W.png", "size":32, "group": "ExplWall"}
+			  , { "tileId":"wallS", "filename":"textures/wall/wall_simple/wall_S.png", "size":32, "group": "ExplWall"}
+			  , { "tileId":"wallNE", "filename":"textures/wall/wall_simple/wall_NE.png", "size":32, "group": "ExplWall"}
+			  , { "tileId":"wallNW", "filename":"textures/wall/wall_simple/wall_NW.png", "size":32, "group": "ExplWall"}
+			  , { "tileId":"wallSE", "filename":"textures/wall/wall_simple/wall_SE.png", "size":32, "group": "ExplWall"}
+			  , { "tileId":"wallSW", "filename":"textures/wall/wall_simple/wall_SW.png", "size":32, "group": "ExplWall"}
+
+			  , { "tileId":"weaponBest", "filename":"textures/weapons/weapon_best.png", "size":32, "group": "ExplWall"}
+			  , { "tileId":"weaponBuilder", "filename":"textures/weapons/weapon_builder.png", "size":32, "group": "ExplWall"}
+			  , { "tileId":"weaponCannon", "filename":"textures/weapons/weapon_canon.png", "size":32, "group": "ExplWall"}
+			  , { "tileId":"weaponDefault", "filename":"textures/weapons/weapon_default.png", "size":32, "group": "ExplWall"}
+			  , { "tileId":"weaponKnoedlthrower", "filename":"textures/weapons/weapon_knoedlthrower.png", "size":32, "group": "ExplWall"}
+			  , { "tileId":"weaponLaser", "filename":"textures/weapons/weapon_laser.png", "size":32, "group": "ExplWall"}
+			  , { "tileId":"weaponLasergunDual", "filename":"textures/weapons/weapon_lasergun_dual.png", "size":32, "group": "ExplWall"}
+			  , { "tileId":"weaponLasergunQuad", "filename":"textures/weapons/weapon_lasergun_quad.png", "size":32, "group": "ExplWall"}
+			  , { "tileId":"weaponMinigunDual", "filename":"textures/weapons/weapon_minigun_dual.png", "size":32, "group": "ExplWall"}
+			  , { "tileId":"weaponRocketlauncher", "filename":"textures/weapons/weapon_rocketlauncher.png", "size":32, "group": "ExplWall"}
+			  , { "tileId":"weaponUltra", "filename":"textures/weapons/weapon_ultra.png", "size":32, "group": "ExplWall"}
+
+		]	
+		}
+	]
+}

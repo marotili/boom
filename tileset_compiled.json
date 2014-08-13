@@ -1,0 +1,567 @@
+{
+    "tileset": [
+        {
+            "imageHeight": 4096,
+            "data": [
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "blue_buttom",
+                    "offset_x": 1920,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "blue_gun",
+                    "offset_x": 1888,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "blue_mid",
+                    "offset_x": 1856,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "bullet",
+                    "offset_x": 1824,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "canonball",
+                    "offset_x": 1792,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "exp01",
+                    "offset_x": 1760,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "exp02",
+                    "offset_x": 1728,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "exp03",
+                    "offset_x": 1696,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "exp04",
+                    "offset_x": 1664,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "exp05",
+                    "offset_x": 1632,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "exp06",
+                    "offset_x": 1600,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "exp07",
+                    "offset_x": 1568,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "exp08",
+                    "offset_x": 1536,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "exp09",
+                    "offset_x": 1504,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "exp10",
+                    "offset_x": 1472,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "exp11",
+                    "offset_x": 1440,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "exp12",
+                    "offset_x": 1408,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "expWall01",
+                    "offset_x": 1376,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "expWall02",
+                    "offset_x": 1344,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "expWall03",
+                    "offset_x": 1312,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "expWall04",
+                    "offset_x": 1280,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "expWall05",
+                    "offset_x": 1248,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "expWall06",
+                    "offset_x": 1216,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "expWall07",
+                    "offset_x": 1184,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "expWall08",
+                    "offset_x": 1152,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "expWall09",
+                    "offset_x": 1120,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "expWall10",
+                    "offset_x": 1088,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "expWall11",
+                    "offset_x": 1056,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "expWall12",
+                    "offset_x": 1024,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "expWall13",
+                    "offset_x": 992,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "expWall14",
+                    "offset_x": 960,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "expWall15",
+                    "offset_x": 928,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "expWall16",
+                    "offset_x": 896,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "expWall18",
+                    "offset_x": 864,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "floorSteel",
+                    "offset_x": 832,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "knoedl",
+                    "offset_x": 800,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "laser",
+                    "offset_x": 768,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "rocket_1",
+                    "offset_x": 736,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "rocket_2",
+                    "offset_x": 704,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "rocket_smoke_particle",
+                    "offset_x": 672,
+                    "origin_y": 102,
+                    "offset_y": 0,
+                    "origin_x": 102
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "wallBasic",
+                    "offset_x": 640,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "wallBroken",
+                    "offset_x": 608,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "wallE",
+                    "offset_x": 576,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "wallN",
+                    "offset_x": 544,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "wallNE",
+                    "offset_x": 512,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "wallNW",
+                    "offset_x": 480,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "wallS",
+                    "offset_x": 448,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "wallSE",
+                    "offset_x": 416,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "wallSW",
+                    "offset_x": 384,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "wallW",
+                    "offset_x": 352,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "weaponBest",
+                    "offset_x": 320,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "weaponBuilder",
+                    "offset_x": 288,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "weaponCannon",
+                    "offset_x": 256,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "weaponDefault",
+                    "offset_x": 224,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "weaponKnoedlthrower",
+                    "offset_x": 192,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "weaponLaser",
+                    "offset_x": 160,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "weaponLasergunDual",
+                    "offset_x": 128,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "weaponLasergunQuad",
+                    "offset_x": 96,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "weaponMinigunDual",
+                    "offset_x": 64,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "weaponRocketlauncher",
+                    "offset_x": 32,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                },
+                {
+                    "height": 32,
+                    "width": 32,
+                    "tileId": "weaponUltra",
+                    "offset_x": 0,
+                    "origin_y": 16,
+                    "offset_y": 0,
+                    "origin_x": 16
+                }
+            ],
+            "imageWidth": 4096,
+            "name": "boom",
+            "base_directory": "data/boom/compiled",
+            "filename": "boom.png"
+        }
+    ],
+    "objects": {
+        "Wolf": {
+            "name": "Wolf"
+        }
+    }
+}
