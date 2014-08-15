@@ -37,7 +37,7 @@ import qualified HSys                       as Sys
 
 import qualified Graphics.UI.GLFW           as GLFW
 
--- import           System.Random
+import           System.Random
 
 import           Render.Halo
 
@@ -153,6 +153,7 @@ data Game = Game
      , _gameRenderer      :: !Renderer
      } deriving (Generic)
 
+
 instance NFData RenderManager where rnf x = x `seq` ()
 instance NFData Renderer where rnf x = x `seq` ()
 instance NFData (W.Wire (W.Timed W.NominalDiffTime ()) () (RWST UserInput (BoomCommands ()) () Identity) () ()) where rnf x = x `seq` ()
@@ -252,7 +253,27 @@ initRender game = do
   mapM (setCamera cam1) [player1FloorRu, player1MainRu]
   mapM (setCamera cam2) [player2FloorRu, player2MainRu]
 
+  mainWall <- getSprite "boom" "wallBasic"
+              
+  let g = mkStdGen 0
+  let coords = evalState gen g 
+               
+
+  traceShow coords $ mapM_ (\(x, y) -> 
+         addSprite player1FloorRu mainWall ("w" ++ show (x*32, y*32)) (fromIntegral $ x*32, fromIntegral $ y*32) 0
+                   ) coords
+
   initPlayer
+  
+  where 
+    gen :: State StdGen [(Int, Int)]
+    gen = mapM (\_ -> do
+                s <- get
+                let (x, newS) = randomR (-10, 10::Int) s
+                let (y, newS') = randomR (-10, 10::Int) newS
+                put newS'
+                return (x, y)
+             ) [0..50::Int]
 
 playerWantsToMove :: WorldWire () (W.Event ())
 playerWantsToMove = W.mkGenN $ \_ -> do
@@ -263,7 +284,7 @@ playerWantsToMove = W.mkGenN $ \_ -> do
 moveDirection :: WorldWire () (Float, Float)
 moveDirection = W.mkGenN $ \_ -> do
                   moveDir <- asks $ \w -> w^.bCommandState . bcsMoveDirection
-                  let ret = fromMaybe (0, 0) moveDir in ret `seq` return (Right ret, moveDirection)
+                  let ret = (\(x, y) -> (x*100, y*100)) $ fromMaybe (0, 0) moveDir in ret `seq` return (Right ret, moveDirection)
 
 spawnBullet :: WorldWire () ()
 spawnBullet = W.mkGenN $ \_ -> do
@@ -279,6 +300,10 @@ spawnBullet = W.mkGenN $ \_ -> do
                 else return ()
                 return (Right (), spawnBullet)
 
+                       
+moveWire = W.mkGen $ \ds (dir, eId) -> do
+             _ <- W.stepWire (Sys.move (Position dir)) ds (Right eId)
+             return (Right (), moveWire)
 
 gameWire :: WorldWire () ()
 gameWire = proc _ -> do
@@ -286,7 +311,7 @@ gameWire = proc _ -> do
              _ <- spawnBullets -< ()
              returnA -< ()
     where
-      movement = void(Sys.move (Position (50, 50)) W.. getMovable 1 W.. void playerWantsToMove)
+      movement = void (moveWire) W.. W.liftA2 (,) moveDirection (getMovable 1) W.. void playerWantsToMove
            W.--> void W.until W.. fmap (\e -> ((), e)) playerWantsToMove
            W.--> waitOneUpdate W.--> gameWire
 
