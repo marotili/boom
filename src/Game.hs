@@ -46,7 +46,7 @@ import           System.Mem
 
 import qualified Graphics.UI.GLFW as GLFW
 
--- import           System.Random
+import           System.Random
 
 import           Render.Halo
 import qualified Render.Halo as H
@@ -119,89 +119,6 @@ syncEvents commands w = syncEvent w commands
 --                            , _bWalls        :: !(Map.Map (Int, Int) Wall)
                            -- , _bCommandState :: !BoomCommandState
                            -- , _bEntityWires  :: !(WorldWire EntityId ())
-                           -- , _bWorldEvents :: !WorldEvents
-                           -- } 
-
-
-
-     
-                          
--- instance Show BoomWorld where
---   show bw = "BoomWorld"
-
--- makeLenses ''BoomWorld
-           
--- data BoomWorldDeltaEvents =
---   EventDefault DefaultDeltaEvent
---   | EventDeath
---   deriving (Eq, Ord, Show)
-
--- data BoomWorldDelta next =
---     DefaultDelta !(DefaultWorldDelta next)
---     | AddMoveEventSource EntityId (Event MoveEvent) !next
---     | AddFireEventSource EntityId (Event FireEvent) !next
---     deriving (Functor)
-    
--- addMoveEventSource eId eSource = liftF $ AddMoveEventSource eId eSource ()
--- addFireEventSource eId eSource = liftF $ AddFireEventSource eId eSource ()
-
--- -
-        -- instance Functor BoomWorldDelta where
---     fmap f (DefaultDelta n) = DefaultDelta (fmap f n)
---     fmap f (DestroyWall id n) = DestroyWall id (f n)
-
--- newtype WallId s = WallId (Int, Int)
--- getWall :: BoomWorld-> (Int, Int) -> Maybe (WallId s)
--- getWall world coords = if Map.member coords (world^.bWalls)
---                        then Just (WallId coords)
---                        else Nothing
-
-
--- instance DeriveDefaultWorldPred BoomWorld HTrue
--- instance DeriveDefaultWorld BoomWorld where
---          getDefaultWorld bw = bw^.bDefaultWorld
---          getDefaultDelta _ f = hoistFree DefaultDelta f
---          getDefaultWorldL = bDefaultWorld
---          getDefaultDeltaEvent _ = EventDefault
-
--- newBoomWorld :: Event MoveEvent -> BoomWorld
--- newBoomWorld me = execState (applyDelta initialCommands) emptyWorld
---     where emptyWorld = BoomWorld { _bDefaultWorld = newDefaultWorld
---                                  , _bWalls = Map.insert (2, 0) newWall Map.empty
---                                  , _bWorldEvents = newWorldEvents
---                                  , _bCommandState = BoomCommandState
---                                                     { _bcsMoveDirection = Nothing
---                                                     , _bcsWantsShoot = False
---                                                     , _bcsLookAt = Nothing
---                                                     }
-
---                                  }
---           initialCommands :: Free (Delta BoomWorld) ()
---           initialCommands = do
---             eId <- defaultWorld (undefined::BoomWorld) $ do
---               eId0 <- spawnMovable "Player" (0, 0) 0
---               Just eId <- getEntityByName "Player"
---               movable <- mkMovable eId
---               traceShow ("Test", eId0 == eId, movable) $ return eId
---             addMoveEventSource eId me
-
-
--- instance World BoomWorld where
---          type Delta BoomWorld = BoomWorldDelta
---          type DeltaEvent BoomWorld = BoomWorldDeltaEvents
---          applyDelta (Free (DefaultDelta defaultWorldDelta)) = do
---            events <- applyDelta' (undefined::BoomWorld) defaultWorldDelta
---            -- let events' = map (getDefaultDeltaEvent (undefined::BoomWorld)) events 
---            return events
---          applyDelta (Free (AddMoveEventSource eId source n)) = do
---            bWorldEvents . weMove . at eId .= Just source
---            applyDelta n
---          applyDelta (Free (AddFireEventSource eId source n)) = do
---            bWorldEvents . weFire . at eId .= Just source
---            applyDelta n
---          applyDelta (Pure _) = return []
-    
-
 initPlayer :: RenderControl EntityData
 initPlayer = do
   player1MainRu <- getSpriteRenderUnit "Main1"
@@ -269,11 +186,27 @@ initRender game = do
   mapM (flip setCamera $ cam1) [player1FloorRu, player1MainRu]
   mapM (flip setCamera $ cam2) [player2FloorRu, player2MainRu]
 
+  mainWall <- getSprite "boom" "wallBasic"
+              
+  let g = mkStdGen 0
+  let coords = evalState gen g 
+               
+
+  traceShow coords $ mapM_ (\(x, y) -> 
+         addSprite player1FloorRu mainWall (fromIntegral $ x*32, fromIntegral $ y*32) 0
+                   ) coords
+
   initPlayer
-
-
--- gameWire :: WorldWire () ()
--- gameWire = W.pure () 
+  
+  where 
+    gen :: State StdGen [(Int, Int)]
+    gen = mapM (\_ -> do
+                s <- get
+                let (x, newS) = randomR (-10, 10::Int) s
+                let (y, newS') = randomR (-10, 10::Int) newS
+                put newS'
+                return (x, y)
+             ) [0..50::Int]
 
 newGame :: GLFW.Window -> IO (Game)
 newGame win = do

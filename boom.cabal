@@ -14,7 +14,6 @@ category:            Game
 build-type:          Simple
 -- extra-source-files:  
 cabal-version:       >=1.10
-
 executable boom
   main-is:             Main.hs
   other-modules:       
@@ -22,7 +21,7 @@ executable boom
     CleanFRP
   -- other-extensions:    
   build-depends:       
-                                                          base >=4.7 && <4.8
+                                                      base >=4.7 && <4.8
                        , GLFW-b >= 1.4.6
                        , async >= 2.0.1.5
                        , containers >= 0.5.5.1
@@ -39,6 +38,7 @@ executable boom
                        , pipes-concurrency
                        , sodium >= 0.10.0.2
                        , stm
+                     , random
   hs-source-dirs:      src/
   default-language:    Haskell2010
   ghc-options: -fprof-auto -fprof-cafs -rtsopts -threaded
