@@ -7,165 +7,202 @@
 {-# LANGUAGE RankNTypes            #-}
 {-# LANGUAGE TemplateHaskell       #-}
 {-# LANGUAGE TypeFamilies          #-}
+{-# LANGUAGE DataKinds          #-}
 {-# LANGUAGE TypeSynonymInstances  #-}
 -- |
 
 module Game where
-
+import           Data.IORef
 import           Debug.Trace
-import           Input                      hiding (Move)
-import qualified Input                      as I
-
+import qualified Input as I
+import           Input hiding (Move, StopMove)
+       
+import           Control.Concurrent.Async
 import           Control.Arrow
+import           Control.Exception
+import           Control.Applicative
 import           Control.Concurrent
 import           Control.Concurrent.STM     (TQueue, TVar, atomically,
                                              newTQueueIO, newTVarIO, readTQueue,
-                                             readTVar, tryReadTQueue,
+                                             readTVar, tryReadTQueue, modifyTVar,
                                              writeTQueue, writeTVar)
 import           Control.DeepSeq
-import           Control.DeepSeq.Generics   (genericRnf)
-import           Control.Lens
+import           Control.DeepSeq.Generics (genericRnf)
+import           Control.Lens hiding (both)
+import qualified Control.Lens as L
 import           Control.Monad.Free
+import           Control.Monad.Reader
 import           Control.Monad.RWS.Strict
 import           Control.Monad.State.Strict
-import qualified Control.Wire               as W
-import qualified Control.Wire.Unsafe.Event  as W
+import qualified Control.Wire as W
+import qualified Control.Wire.Unsafe.Event as W
+import           FRP.Sodium hiding (merge, accum)
+import qualified FRP.Sodium as S
 import           GHC.Generics
 import           HSys                       hiding (InputWire, WorldWire, move,
-                                             rotate)
-import qualified HSys                       as Sys
+                                             rotate, EventMove, EventRotate, EventSpawn, applyDelta)
+import qualified HSys as Sys
+import           System.Mem
 
-import qualified Graphics.UI.GLFW           as GLFW
+import qualified Graphics.UI.GLFW as GLFW
 
 -- import           System.Random
 
 import           Render.Halo
+import qualified Render.Halo as H
 
-import qualified Data.Map.Strict            as Map
+import qualified Data.Map.Strict as Map
 import           Data.Maybe
+                 
+import           CleanFRP
+       
+import           Pipes
+import qualified Pipes as P
+import           Pipes.Concurrent
 
 data Wall = Wall { _wallHitpoints :: Int } deriving (Show, Generic)
-instance NFData Wall where rnf = genericRnf
 newWall = Wall { _wallHitpoints = 1 }
 
--- | an outside entity (user input, artificial intelligence) uses commands
--- for now only one entity (the player) exists
-data BoomCommandState = BoomCommandState
-    { _bcsMoveDirection :: !(Maybe (Float, Float))
-    , _bcsLookAt        :: !(Maybe (Float, Float))
-    , _bcsWantsShoot    :: !Bool
-    } deriving (Show, Generic)
+-- data BoomCommandState = BoomCommandState
+--     { _bcsMoveDirection :: !(Maybe (Float, Float))
+--     , _bcsLookAt        :: !(Maybe (Float, Float))
+--     , _bcsWantsShoot    :: !Bool
+--     } deriving (Show, Generic)
 
-instance NFData BoomCommandState where rnf = genericRnf
+-- makeLenses ''BoomCommandState
+   
+syncEvents :: BoomCommands a -> BoomWorld -> S.Reactive ()
+syncEvents commands w = syncEvent w commands 
+  where
+    syncEvent w (Free (I.Move (x, y) n)) = do
+      w^.bInput.bwSendMoveEvent $ MoveEvent (fromIntegral x, fromIntegral y)
+      syncEvent w n
+    syncEvent w (Free (I.StopMove n)) = do
+      w^.bInput.bwSendMoveEvent $ StopMoveEvent
+      syncEvent w n
+    syncEvent w (Free (LookAt dir n)) = do
+      syncEvent w n
+    syncEvent w (Free (Shoot n)) = do
+      w^.bInput.bwSendFire $ FireEvent
+      syncEvent w n
+    syncEvent _ _ = return ()
 
-makeLenses ''BoomCommandState
+-- buildCommandState :: BoomCommands a -> BoomCommandState -> BoomCommandState
+-- buildCommandState commands startState =
+--     execState (buildCommandState' commands) (startState & bcsWantsShoot .~ False)
+--     where
+--       buildCommandState' (Free (I.Move (x, y) n)) = do
+--         bcsMoveDirection .= Just (fromIntegral x, fromIntegral y)
+--         buildCommandState' n
+--       buildCommandState' (Free (I.StopMove n)) = do
+--         bcsMoveDirection .= Nothing
+--         buildCommandState' n
+--       buildCommandState' (Free (LookAt (x, y) n)) = do
+--         bcsLookAt .= Just (fromIntegral x, fromIntegral y)
+--         buildCommandState' n
+--       buildCommandState' (Free (Shoot n)) = do
+--         bcsWantsShoot .= True
+--         buildCommandState' n
+--       buildCommandState' (Pure a) = return a
+    
+-- data MoveEvent = MoveEvent (Float, Float) | StopMove
+-- data FireEvent = FireEvent
 
-buildCommandState :: BoomCommands a -> BoomCommandState -> BoomCommandState
-buildCommandState commands startState =
-    execState (buildCommandState' commands) (startState & bcsWantsShoot .~ False)
-    where
-      buildCommandState' (Free (I.Move dir n)) = do
-        bcsMoveDirection .= Just dir
-        buildCommandState' n
-      buildCommandState' (Free (StopMove n)) = do
-        bcsMoveDirection .= Nothing
-        buildCommandState' n
-      buildCommandState' (Free (LookAt dir n)) = do
-        bcsLookAt .= Just dir
-        buildCommandState' n
-      buildCommandState' (Free (Shoot n)) = do
-        bcsWantsShoot .= True
-        buildCommandState' n
-      buildCommandState' (Pure a) = return a
+-- data WorldEvents = WorldEvents
+--  { _weMove :: Map.Map EntityId (Event MoveEvent)
+--  , _weFire :: Map.Map EntityId (Event FireEvent)
+--  }
+-- newWorldEvents = WorldEvents Map.empty Map.empty 
+-- makeLenses ''WorldEvents
 
-
-
-data BoomWorld = BoomWorld { _bDefaultWorld :: !DefaultWorld
-                           , _bWalls        :: !(Map.Map (Int, Int) Wall)
-                           , _bCommandState :: !BoomCommandState
+-- data BoomWorld = BoomWorld { _bDefaultWorld :: !DefaultWorld
+--                            , _bWalls        :: !(Map.Map (Int, Int) Wall)
+                           -- , _bCommandState :: !BoomCommandState
                            -- , _bEntityWires  :: !(WorldWire EntityId ())
-                           } deriving (Show, Generic)
-
-instance NFData BoomWorld where rnf = genericRnf
-
-makeLenses ''BoomWorld
-
-data BoomWorldDelta next =
-    DefaultDelta !(DefaultWorldDelta next)
-    | DestroyWall !(forall s. WallId s) !next
-
-instance Functor BoomWorldDelta where
-    fmap f (DefaultDelta n) = DefaultDelta (fmap f n)
-    fmap f (DestroyWall id n) = DestroyWall id (f n)
-
-newtype WallId s = WallId (Int, Int)
-getWall :: BoomWorld-> (Int, Int) -> Maybe (WallId s)
-getWall world coords = if Map.member coords (world^.bWalls)
-                       then Just (WallId coords)
-                       else Nothing
+                           -- , _bWorldEvents :: !WorldEvents
+                           -- } 
 
 
-instance DeriveDefaultWorldPred BoomWorld HTrue
-instance DeriveDefaultWorld BoomWorld where
-         getDefaultWorld bw = bw^.bDefaultWorld
-         getDefaultDelta _ f = hoistFree DefaultDelta f
-         getDefaultWorldL = bDefaultWorld
 
-newBoomWorld :: BoomWorld
-newBoomWorld = execState (applyDelta initialCommands) emptyWorld
-    where emptyWorld = BoomWorld { _bDefaultWorld = newDefaultWorld
-                                 , _bWalls = Map.insert (2, 0) newWall Map.empty
-                                 , _bCommandState = BoomCommandState
-                                                    { _bcsMoveDirection = Nothing
-                                                    , _bcsWantsShoot = False
-                                                    , _bcsLookAt = Nothing
-                                                    }
+     
+                          
+-- instance Show BoomWorld where
+--   show bw = "BoomWorld"
 
-                                 }
-          initialCommands :: Free (Delta BoomWorld) ()
-          initialCommands = do
-            defaultWorld (undefined::BoomWorld) $ do
-              eId0 <- spawnMovable "Player" (0, 0) 0
-              Just eId <- getEntityByName "Player"
-              movable <- mkMovable eId
-              traceShow ("Test", eId0 == eId, movable) $ return ()
+-- makeLenses ''BoomWorld
+           
+-- data BoomWorldDeltaEvents =
+--   EventDefault DefaultDeltaEvent
+--   | EventDeath
+--   deriving (Eq, Ord, Show)
 
-instance World BoomWorld where
-         type Delta BoomWorld = BoomWorldDelta
-         applyDelta (Free (DefaultDelta defaultWorldDelta)) = do
-           applyDelta' (undefined::BoomWorld) defaultWorldDelta
-         applyDelta (Free (DestroyWall _ n)) = applyDelta n
-         applyDelta (Pure _) = return ()
+-- data BoomWorldDelta next =
+--     DefaultDelta !(DefaultWorldDelta next)
+--     | AddMoveEventSource EntityId (Event MoveEvent) !next
+--     | AddFireEventSource EntityId (Event FireEvent) !next
+--     deriving (Functor)
+    
+-- addMoveEventSource eId eSource = liftF $ AddMoveEventSource eId eSource ()
+-- addFireEventSource eId eSource = liftF $ AddFireEventSource eId eSource ()
 
-data Player =
-     PlayerOne
-     | PlayerTwo
-     deriving (Eq, Ord, Show, Generic)
+-- -
+        -- instance Functor BoomWorldDelta where
+--     fmap f (DefaultDelta n) = DefaultDelta (fmap f n)
+--     fmap f (DestroyWall id n) = DestroyWall id (f n)
 
-instance NFData Player where rnf = genericRnf
+-- newtype WallId s = WallId (Int, Int)
+-- getWall :: BoomWorld-> (Int, Int) -> Maybe (WallId s)
+-- getWall world coords = if Map.member coords (world^.bWalls)
+--                        then Just (WallId coords)
+--                        else Nothing
 
-type WorldWire a b = Sys.WorldWire BoomWorld a b
 
-data Game = Game
-     { _gameWorlds        :: !(Map.Map Player BoomWorld)
-     , _gameWires         :: !(Map.Map Player (WorldWire () ()))
-     , _gameRenderManager :: !RenderManager
-     , _gameRenderer      :: !Renderer
-     } deriving (Generic)
+-- instance DeriveDefaultWorldPred BoomWorld HTrue
+-- instance DeriveDefaultWorld BoomWorld where
+--          getDefaultWorld bw = bw^.bDefaultWorld
+--          getDefaultDelta _ f = hoistFree DefaultDelta f
+--          getDefaultWorldL = bDefaultWorld
+--          getDefaultDeltaEvent _ = EventDefault
 
-instance NFData RenderManager where rnf x = x `seq` ()
-instance NFData Renderer where rnf x = x `seq` ()
-instance NFData (W.Wire (W.Timed W.NominalDiffTime ()) () (RWST UserInput (BoomCommands ()) () Identity) () ()) where rnf x = x `seq` ()
-instance NFData (W.Wire (W.Timed W.NominalDiffTime ()) () (RWS BoomWorld (Free BoomWorldDelta ()) ()) () ()) where rnf x = x `seq` ()
+-- newBoomWorld :: Event MoveEvent -> BoomWorld
+-- newBoomWorld me = execState (applyDelta initialCommands) emptyWorld
+--     where emptyWorld = BoomWorld { _bDefaultWorld = newDefaultWorld
+--                                  , _bWalls = Map.insert (2, 0) newWall Map.empty
+--                                  , _bWorldEvents = newWorldEvents
+--                                  , _bCommandState = BoomCommandState
+--                                                     { _bcsMoveDirection = Nothing
+--                                                     , _bcsWantsShoot = False
+--                                                     , _bcsLookAt = Nothing
+--                                                     }
 
-instance NFData Game where rnf = genericRnf
+--                                  }
+--           initialCommands :: Free (Delta BoomWorld) ()
+--           initialCommands = do
+--             eId <- defaultWorld (undefined::BoomWorld) $ do
+--               eId0 <- spawnMovable "Player" (0, 0) 0
+--               Just eId <- getEntityByName "Player"
+--               movable <- mkMovable eId
+--               traceShow ("Test", eId0 == eId, movable) $ return eId
+--             addMoveEventSource eId me
 
-makeLenses ''Game
 
-instance Show Game where
-    show g = show (g^.gameWorlds)
+-- instance World BoomWorld where
+--          type Delta BoomWorld = BoomWorldDelta
+--          type DeltaEvent BoomWorld = BoomWorldDeltaEvents
+--          applyDelta (Free (DefaultDelta defaultWorldDelta)) = do
+--            events <- applyDelta' (undefined::BoomWorld) defaultWorldDelta
+--            -- let events' = map (getDefaultDeltaEvent (undefined::BoomWorld)) events 
+--            return events
+--          applyDelta (Free (AddMoveEventSource eId source n)) = do
+--            bWorldEvents . weMove . at eId .= Just source
+--            applyDelta n
+--          applyDelta (Free (AddFireEventSource eId source n)) = do
+--            bWorldEvents . weFire . at eId .= Just source
+--            applyDelta n
+--          applyDelta (Pure _) = return []
+    
 
-initPlayer :: RenderControl ()
+initPlayer :: RenderControl EntityData
 initPlayer = do
   player1MainRu <- getSpriteRenderUnit "Main1"
   player2MainRu <- getSpriteRenderUnit "Main2"
@@ -174,14 +211,16 @@ initPlayer = do
   feet <- getSprite "boom" "blue_buttom"
   gun <- getSprite "boom" "blue_gun"
 
-  addSprite player1MainRu mainBody "Player1MainBody" (0, 0) 0
-  addSprite player2MainRu mainBody "Player2MainBody" (0, 0) 0
+  p1Body <- addSprite player1MainRu mainBody (0, 0) 0
+  p2Body <- addSprite player2MainRu mainBody (0, 0) 0
 
-  addSprite player1MainRu feet "Player1Feet" (0, 0) 0
-  addSprite player2MainRu feet "Player2Feet" (0, 0) 0
+  p1Feet <- addSprite player1MainRu feet (0, 0) 0
+  p2Feet <- addSprite player2MainRu feet (0, 0) 0
 
-  addSprite player1MainRu gun "Player1Gun" (0, 0) 0
-  addSprite player2MainRu gun "Player2Gun" (0, 0) 0
+  p1Gun <- addSprite player1MainRu gun (0, 0) 0
+  p2Gun <- addSprite player2MainRu gun (0, 0) 0
+  
+  return $ EntityData (p1Body, p1Feet, p1Gun) (p2Body, p2Feet, p2Gun) Map.empty
 
 -- setPlayer1Data :: (Float, Float) -> (Float, Float) -> RenderControl ()
 -- setPlayer1Data pos (feetRot, mainRot) = do
@@ -205,37 +244,15 @@ initPlayer = do
 
 --   setPosition player2MainRu "Player2Gun" pos
 --   setRotation player2MainRu "Player2Gun" mainRot
-
-buildRenderCommands :: Free BoomWorldDelta () -> Free BoomWorldDelta () -> RenderControl ()
-buildRenderCommands freeWorld1 freeWorld2 = do
-  player1MainRu <- getSpriteRenderUnit "Main1"
-  player2MainRu <- getSpriteRenderUnit "Main2"
-  world1 player1MainRu freeWorld1
-  world2 player2MainRu freeWorld2
-    where
-      world1 player1MainRu (Free (DefaultDelta (Move 1 (Position pos) n))) = do
-        move player1MainRu "Player1Feet" pos
-        move player1MainRu "Player1Gun" pos
-        move player1MainRu "Player1MainBody" pos
-        world1 player1MainRu n
-      world1 _ _ = return ()
-
-      world2 ru (Free (DefaultDelta (Move 1 (Position pos) n))) = do
-        move ru "Player2Feet" pos
-        move ru "Player2Gun" pos
-        move ru "Player2MainBody" pos
-
-      world2 _ _ = return ()
-
-initRender :: Game -> RenderControl ()
+initRender :: Game -> RenderControl EntityData
 initRender game = do
-  cam0 <- newCamera "MainCam" 512 1024
-  cam1 <- newCamera "Player1Cam" 512 512
-  cam2 <- newCamera "Player2Cam" 512 512
+  cam0 <- newCamera "MainCam" (512, 1024)
+  cam1 <- newCamera "Player1Cam" (512, 512)
+  cam2 <- newCamera "Player2Cam" (512, 512)
 
-  viewport0 <- newViewport "MainViewport" 0 0 512 1024
-  viewport1 <- newViewport "Player1Viewport" 0 0 512 512
-  viewport2 <- newViewport "Player2Viewport" 0 512 512 512
+  viewport0 <- newViewport "MainViewport" $ Viewport 0 0 512 1024
+  viewport1 <- newViewport "Player1Viewport" $ Viewport 0 0 512 512
+  viewport2 <- newViewport "Player2Viewport" $ Viewport 0 512 512 512
 
   backgroundRu <- newSpriteRenderUnit "BackgroundRU"
   player1FloorRu <- newSpriteRenderUnit "Floor1"
@@ -244,264 +261,397 @@ initRender game = do
   player2MainRu <- newSpriteRenderUnit "Main2"
   bulletRu <- newSpriteRenderUnit "Bullets"
 
-  mapM (setViewport viewport0) [backgroundRu, bulletRu]
-  mapM (setViewport viewport1) [player1FloorRu, player1MainRu]
-  mapM (setViewport viewport2) [player2FloorRu, player2MainRu]
+  mapM (flip setViewport $ viewport0) [backgroundRu, bulletRu]
+  mapM (flip setViewport $ viewport1) [player1FloorRu, player1MainRu]
+  mapM (flip setViewport $ viewport2) [player2FloorRu, player2MainRu]
 
-  mapM (setCamera cam0) [backgroundRu, bulletRu]
-  mapM (setCamera cam1) [player1FloorRu, player1MainRu]
-  mapM (setCamera cam2) [player2FloorRu, player2MainRu]
+  mapM (flip setCamera $ cam0) [backgroundRu, bulletRu]
+  mapM (flip setCamera $ cam1) [player1FloorRu, player1MainRu]
+  mapM (flip setCamera $ cam2) [player2FloorRu, player2MainRu]
 
   initPlayer
 
-playerWantsToMove :: WorldWire () (W.Event ())
-playerWantsToMove = W.mkGenN $ \_ -> do
-                      moveDir <- asks $ \w -> w ^. bCommandState . bcsMoveDirection
-                      return $ case moveDir of Just _ -> (Right (W.Event ()), playerWantsToMove)
-                                               Nothing -> (Left (), playerWantsToMove)
 
-moveDirection :: WorldWire () (Float, Float)
-moveDirection = W.mkGenN $ \_ -> do
-                  moveDir <- asks $ \w -> w^.bCommandState . bcsMoveDirection
-                  let ret = fromMaybe (0, 0) moveDir in ret `seq` return (Right ret, moveDirection)
+-- gameWire :: WorldWire () ()
+-- gameWire = W.pure () 
 
-spawnBullet :: WorldWire () ()
-spawnBullet = W.mkGenN $ \_ -> do
-                spawn <- asks $ \w -> w^.bCommandState . bcsWantsShoot
-
-                if spawn then
-                    tell $ ((defaultWorld (undefined::BoomWorld) $ do
-                        Just playerId <- getEntityByName "Player"
-                        Position pos <- getStuff playerId
-                        Rotation rot <- getStuff playerId
-                        id <- spawnMovable "Bullet" pos rot
-                        return ()) :: Free BoomWorldDelta ())
-                else return ()
-                return (Right (), spawnBullet)
-
-
-gameWire :: WorldWire () ()
-gameWire = proc _ -> do
-             _ <- movement -< ()
-             _ <- spawnBullets -< ()
-             returnA -< ()
-    where
-      movement = void(Sys.move (Position (50, 50)) W.. getMovable 1 W.. void playerWantsToMove)
-           W.--> void W.until W.. fmap (\e -> ((), e)) playerWantsToMove
-           W.--> waitOneUpdate W.--> gameWire
-
-      spawnBullets = W.pure ()
-
-liftW :: WorldMonad BoomWorld a -> WorldWire () a
-liftW m = W.mkGenN $ \_ -> do
-            a <- m
-            return $ a `seq` (Right a, liftW m)
-
-readE :: BoomWorld -> EntityId -> WorldMonad BoomWorld (Maybe (EntityComp BoomWorld Position s))
-readE = readEntity (undefined::Position)
-
-getMovable :: EntityId -> WorldWire () ((MovableEntity s))
-getMovable eId = fmap fromJust $ liftW (readE (undefined::BoomWorld) eId)
-
-newGame :: GLFW.Window -> IO Game
+newGame :: GLFW.Window -> IO (Game)
 newGame win = do
   (renderer, renderManager) <- runStateT (newRenderer win) newRenderManager
   let game = Game { _gameWorlds = Map.empty
-                        , _gameWires = Map.empty
+--                         , _gameWires = Map.empty
+                  , _gamePushWorld = Map.empty
                         , _gameRenderManager = renderManager
                         , _gameRenderer = renderer
+                        , _gameEntityData = Nothing
                         }
 
-
   game' <- flip execStateT game $ do
-                  gameWorlds.at PlayerOne .= Just newBoomWorld
-                  gameWorlds.at PlayerTwo .= Just newBoomWorld
+                  (bw1, pushW1) <- lift $ newBoomWorld
+                  (bw2, pushW2) <- lift $ newBoomWorld
+                  gameWorlds.at PlayerOne .= Just (bw1)
+                  gameWorlds.at PlayerTwo .= Just (bw2)
+                  gamePushWorld.at PlayerOne .= Just pushW1
+                  gamePushWorld.at PlayerTwo .= Just pushW2
 
-                  gameWires.at PlayerOne .= Just gameWire
-                  gameWires.at PlayerTwo .= Just gameWire
+                  -- gameWires.at PlayerOne .= Just gameWire
+                  -- gameWires.at PlayerTwo .= Just gameWire
 
                   newGame <- get
-                  newGameRenderer <- lift $ execStateT (runRenderControl (initRender newGame)) (newGame^.gameRenderer)
+                  (entityData, newGameRenderer) <- lift $ runStateT (runRenderControl (initRender newGame)) (newGame^.gameRenderer)
+                  gameEntityData .= Just entityData
                   gameRenderer .= newGameRenderer
 
-  print (game'^.gameWorlds)
-  return game'
+  -- print (game'^.gameWorlds)
+  return (game')
+  
+mkDoQuit :: InputFRP (S.Behavior Bool)
+mkDoQuit = do
+  escapeKey <- keyDown GLFW.Key'Escape
+  lift $ hold False (once $ fmap (const True) escapeKey)
+         
+data LoopConstData a b c d = LoopConstData a b c d
+     
+type InputSink a = Event (Free BoomActions a)
+     
+liftA4 :: Applicative f => (a -> b -> c -> d -> e) -> f a -> f b -> f c -> f d -> f e
+liftA4 f a b c d = f <$> a <*> b <*> c <*> d
+       
+constB = return . pure
+       
+instance Monoid Int where
+         mempty = 0
+         mappend a b = a + b
+     
+movement :: InputFRP (Event (Free BoomActions ()))
+movement = do
+  let keys = [GLFW.Key'W, GLFW.Key'A, GLFW.Key'S, GLFW.Key'D, GLFW.Key'Space]
+  [wDown, aDown, sDown, dDown, spaceDown] <- (mapM keyIsDown keys)
+  [wUp, aUp, sUp, dUp, spaceUp] <- mapM keyIsUp keys
+  
+  let moveLeft = fmap (\b -> if b then (-1, 0) else (0, 0)) $ liftA2 (&&) aDown dUp
+      moveRight = fmap (\b -> if b then (1, 0) else (0, 0)) $ liftA2 (&&) dDown aUp
+      moveTop = fmap (\b -> if b then (0, 1) else (0, 0)) $ liftA2 (&&) wDown sUp
+      moveBottom = fmap (\b -> if b then (0, -1) else (0, 0)) $ liftA2 (&&) sDown wUp
+  
+      -- move = liftA4 (\a b c d -> a `mappend` b `mappend` c `mappend` d) moveLeft moveRight moveTop moveBottom
+  
+  beh <- lift $ do
+      w <- while (both wDown sUp) (0, 0) (constB (0, 1))
+      s <- while (both sDown wUp) (0, 0) (constB (0, -1))
+      a <- while (both aDown dUp) (0, 0) (constB (-1, 0))
+      d <- while (both dDown aUp) (0, 0) (constB (1, 0))
+      return $ liftA4 (\a b c d -> a `mappend` b `mappend` c `mappend` d) w a s d
+  
+  let e = updates beh
+  let stopMoveE :: Event (Free BoomActions ())
+      stopMoveE = replace (liftF (I.StopMove ())) $ S.filterE (==(0,0)) e
+  let move :: Event (Free BoomActions ())
+      move = fmap (\dir -> liftF $ I.Move dir ()) $ S.filterE (/=(0,0)) $ updates beh
+  
+  let eFire = fmap (const $ liftF (Shoot ())) $ updates spaceDown
+  
+  return $ mergeWith (>>) (mergeWith (>>) stopMoveE move) eFire
+  
+newtype Tick = Tick Float deriving (Show)
+     
+gameSync vGame inputGame inputGame2 outputGame = do
+  game <- atomically . readTVar $ vGame
+  deltaEv <- sync $ enterTheGame (fromJust $ game^.gameWorlds.at PlayerOne)
+  deltaEv2 <- sync $ enterTheGame (fromJust $ game^.gameWorlds.at PlayerTwo)
+
+  vDelta1 <- newIORef (deltaId)
+  vDelta2 <- newIORef (deltaId)
+
+  unlisten <- sync $ do
+    S.listen deltaEv (\delta -> do
+            modifyIORef vDelta1 (\old -> old >> delta)
+            )
+
+  unlisten2 <- sync $ do
+     S.listen deltaEv2 (\delta -> do
+            modifyIORef vDelta2 (\d -> d >> delta)
+            -- old <- readIORef vDelta2
+            -- writeIORef vDelta2 (old >> delta)
+      )
+
+  runEffect $ (fromInput (inputGame `mappend` inputGame2)) >-> gameLoop vDelta1 vDelta2 vGame >-> toOutput outputGame
+  performGC
+     
+-- gameLoop :: Event ([BoomWorldDelta]) -> Output [BoomWorldDelta] -> Game -> Consumer (Either (Free BoomActions ()) (Tick)) IO ()
+catchAny :: IO a -> (SomeException -> IO a) -> IO a
+catchAny = Control.Exception.catch
+
+gameLoop vDelta1 vDelta2 vGame = do
+  commands <- await
+
+  game <- lift $ atomically $ readTVar vGame
+
+  let Just world1' = game^.gameWorlds.at PlayerOne
+  let Just world2' = game^.gameWorlds.at PlayerTwo
+  world1 <- lift . sync $ sample world1'
+  world2 <- lift . sync $ sample world2'
+  
+  case commands of
+    Left commands' -> do
+      lift . sync $ syncEvents commands' world1
+    Right (Tick dt) -> lift . sync $ (world1^.bInput.bwSendTick) (4)
+  
+  delta1 <- lift $ readIORef vDelta1
+  delta2 <- lift $ readIORef vDelta2
+  lift $ writeIORef vDelta1 (deltaId)
+  lift $ writeIORef vDelta2 (deltaId)
+  
+  (rc, pendingActions1, pendingActions2) <- lift $ catchAny (do
+    let Just pushGame1 = game^.gamePushWorld.at PlayerOne
+    let Just pushGame2 = game^.gamePushWorld.at PlayerTwo
+
+    sync $ do
+      -- apply changes
+      let (bw1, bw2, rc) = applyDelta delta1 delta2 world1 world2
+
+      let pA1 = bw1^.bPendingActions
+      let pA2 = bw2^.bPendingActions
+
+      let bw1' = bw1 & bPendingActions .~ []
+      let bw2' = bw2 & bPendingActions .~ []
+
+      pushGame1 bw1'
+      pushGame2 bw2'
+
+      return (rc, pA1, pA2)
+
+    ) $ \e -> do
+      print e
+      return (return (), [], [])
+  
+  mapM (lift . sync) pendingActions1
+  mapM (lift . sync) pendingActions2
+
+  rc `seq` P.yield rc
+
+  gameLoop vDelta1 vDelta2 vGame
+  
+type RC = StateT Game RenderControl ()
+collectCommands :: Double -> RC -> Pipe RC RC IO ()
+collectCommands start d = do
+  s <- await
+  Just end <- lift $ GLFW.getTime
+  if realToFrac (end - start) > tickrate / 1000 then do
+    let x = (d >> s) in x `seq` P.yield x
+    collectCommands (end + (end - start) - 0.016) (return ())
+  else do
+    collectCommands start (d >> s)
+  
+         
+renderLoop :: TVar Game -> Consumer (StateT Game RenderControl ()) IO ()
+renderLoop vGame = do
+  inp <- await
+  -- lift $ GLFW.getTime >>= print
+  --let Just entData = game^.gameEntityData
+  --let !renderControls = handleEvents entData inp (Pure ())
+  
+  --rc <- lift . atomically $ modifyTVar vGame (execStateT inp)
+  game <- lift . atomically $ readTVar vGame
+  
+  let rc = execStateT inp game
+  
+  -- StateT Game RenderControl ()
+  -- RenderControl -> StateT Renderer IO a
+
+  Just t1 <- lift GLFW.getTime
+  (newGame, newGameRenderer) <- lift $ runStateT (runRenderControl rc) (game^.gameRenderer)
+  Just t2 <- lift GLFW.getTime
+  lift $ render newGameRenderer
+  Just t3 <- lift GLFW.getTime
+  -- lift $ print $ map (*1000) [t2 - t1, t3 - t2, t3 - t1]
+
+  lift . atomically $ modifyTVar vGame (\game -> newGame & gameRenderer .~ newGameRenderer)
+
+  renderLoop vGame 
+  
+tickrate :: Float
+tickrate = 16
+
+-- genTicks :: Producer Tick IO ()
+genTicks stepInput = do
+  Just oldTime <- lift GLFW.getTime
+  genTicks' oldTime 0
+    where 
+      genTicks' oldTime missing = do
+        Just newTime <- lift GLFW.getTime
+
+        let dt = realToFrac $ (newTime - oldTime)*1000 + fromIntegral missing
+        let steps = map (const tickrate) [tickrate, tickrate*2..dt]
+        mapM (\s -> s `seq` P.yield . Tick $ s) steps
+  
+        let dt' = round dt :: Int
+
+        lift $ threadDelay $ 1000 * (round tickrate - 1000*round (newTime - oldTime))
+        lift $ stepInput
+        genTicks' newTime (dt' `mod` round tickrate)
+  
+loopInput var outputInput2 = do
+  f <- lift $ atomically $ readTQueue var
+  f `seq` P.yield (Left f) >-> (toOutput outputInput2)
+  loopInput var outputInput2
+  
+inputSync keyInput outputInput2 = do
+    var <- newTQueueIO
+    syncInput keyInput $ do
+        e <- movement
+        lift $ S.listen e (\f -> do
+          atomically $ writeTQueue var f
+          )
+    runEffect $ loopInput var outputInput2
+    
+tickSync outputInput stepInput = do
+    runEffect $ for (genTicks stepInput) (P.yield . Right) >-> (toOutput outputInput)
+    performGC
 
 runGame win = do
-  eventsChan <- newTQueueIO :: IO (TQueue Event)
-  GLFW.setErrorCallback               $ Just $ errorCallback           eventsChan
-  GLFW.setWindowPosCallback       win $ Just $ windowPosCallback       eventsChan
-  GLFW.setWindowSizeCallback      win $ Just $ windowSizeCallback      eventsChan
-  GLFW.setWindowCloseCallback     win $ Just $ windowCloseCallback     eventsChan
-  GLFW.setWindowRefreshCallback   win $ Just $ windowRefreshCallback   eventsChan
-  GLFW.setWindowFocusCallback     win $ Just $ windowFocusCallback     eventsChan
-  GLFW.setWindowIconifyCallback   win $ Just $ windowIconifyCallback   eventsChan
-  GLFW.setFramebufferSizeCallback win $ Just $ framebufferSizeCallback eventsChan
-  GLFW.setMouseButtonCallback     win $ Just $ mouseButtonCallback     eventsChan
-  GLFW.setCursorPosCallback       win $ Just $ cursorPosCallback       eventsChan
-  GLFW.setCursorEnterCallback     win $ Just $ cursorEnterCallback     eventsChan
-  GLFW.setScrollCallback          win $ Just $ scrollCallback          eventsChan
-  GLFW.setKeyCallback             win $ Just $ keyCallback             eventsChan
-  GLFW.setCharCallback            win $ Just $ charCallback            eventsChan
-
   GLFW.swapInterval 1
 
+  (eT, pushT) <- sync S.newEvent
 
-  let session = newSession
+  (keyInput, stepInput) <- initInput win
+  -- a <- syncInput input $ keyDown GLFW.Key'Escape
+  doQuit <- syncInput keyInput mkDoQuit
+  
+  (outputInput, inputGame) <- spawn Unbounded
+  (outputInput2, inputGame2) <- spawn Unbounded
+  (outputGame, renderInput) <- spawn Unbounded
+
+
+  print "Print this to avoid segmentation fault"
+  (game) <- newGame win
+  
+  g <- newTVarIO game
+  
+  -- input loop
+  _ <- async $ inputSync keyInput outputInput2 
+  _ <- async $ tickSync outputInput stepInput
+   
+  -- render loop
+  -- _ <- async $ do
+  --   runEffect $ fromInput renderInput >-> renderLoop game
+  --   performGC
+  
+ 
+  -- game loop
+  tId <- async $ gameSync g inputGame inputGame2 outputGame
+  
+  Just t <- GLFW.getTime
+  runEffect $ fromInput renderInput >-> collectCommands t (return ()) >-> renderLoop g
+
+  wait tId 
+ 
+  -- sync $ do
+  --   -- e <- keyDownFor 1 eT GLFW.Key'A eKey 
+  --   Sk.listen e print
+
+  -- let session = newSession
   -- stdGen <- getStdGen
   -- (a, stdGen') <- randomR (0, 100) stdGen
-  game <- newGame win
-  loop eventsChan win (userInputWire1, userInputWire2) newUserInput session game
+  -- print "initialized game"
+  return ()
+  
+
+
+  -- Just startTime <- GLFW.getTime
+  -- loop (LoopConstData win eKey doQuit pushMove1) game startTime pushT
   where
-    loop !eventsChan !win !(!uIW1, !uIW2) !oldUserInputData !session !game = do
-        GLFW.pollEvents
-        (_, userInputData, _) <- runRWST (processEvents eventsChan) win oldUserInputData
-
-        -- get input
-        -- assign commands
-
-        (dt, session') <- stepSession session
-        let (newUIW1, newUIW2, !userCommands1, !userCommands2) = runInput uIW1 uIW2 dt userInputData
-
-        print (userCommands1, userCommands2)
+    loop cd@(LoopConstData win eKey doQuit pushMove1) !game lastTime pushT = do
+        threadDelay 100000
+        -- (dt, session') <- stepSession session
 
         -- | Update game
-        let Just world1' = game^.gameWorlds.at PlayerOne
-        let world1 = world1' & bCommandState %~ (buildCommandState userCommands1)
-        let Just world2' = game^.gameWorlds.at PlayerTwo
-        let world2 = world2' & bCommandState %~ (buildCommandState userCommands2)
-        let Just wire1 = game^.gameWires.at PlayerOne
-        let Just wire2 = game^.gameWires.at PlayerTwo
-        let ((_, !newWire1), _, !freeList1) = runWire dt world1 wire1
-        let ((_, !newWire2), _, !freeList2) = runWire dt world2 wire2
+        -- let Just world1 = game^.gameWorlds.at PlayerOne
+        -- let world1 = world1' & bCommandState %~ (buildCommandState userCommands1)
+        -- let Just world2 = game^.gameWorlds.at PlayerTwo
+        -- let world2 = world2' & bCommandState %~ (buildCommandState userCommands2)
+  
+        -- note: this recreates the entire frp framework
+        --   we dont want to do this for const data in world1 (when event sources etc. dont change)
+        -- evts <- sync $ runReaderT movementG world1
+        -- unlisten <- sync $ S.listen evts $ \free -> do
+        --   let (eventList1, !newWorld1) = runState (applyDelta free) world1
+        --   -- let (eventList2, !newWorld2) = runState (applyDelta freeList2) world2
+        --   print eventList1
+        --sync $ pushMove1 (MoveEvent (50, 50))
+        -- sync $ do
+          -- deltaEvents <- (mkDeltaEvents world1)
+          -- S.listen deltaEvents print
+          
+        -- sync $ (world1^.bInput.bwSendMoveEvent) (MoveEvent (50, 50))
+        -- sync $ (world1^.bInput.bwSendTick) (0.5)
+        -- -- unlisten
+ 
+        -- let (freeList1, freeList2) = ([], [])
 
-        let !renderControls = buildRenderCommands freeList1 freeList2
+        -- let Just g = game^.gameEntityData
 
-        let !newWorld1 = execState (applyDelta freeList1) world1
-        let !newWorld2 = execState (applyDelta freeList2) world2
+        -- -- let (eventList1, !newWorld1) = runState (applyDelta freeList1) world1
+        -- -- let (eventList2, !newWorld2) = runState (applyDelta freeList2) world2
+  
+        -- -- let !renderControls = handleEvents g eventList1 eventList2
 
-        let !game' = game & gameWires.at PlayerOne .~ Just newWire1
-                         & gameWires.at PlayerTwo .~ Just newWire2
-                         & gameWorlds.at PlayerOne .~ Just newWorld1
-                         & gameWorlds.at PlayerTwo .~ Just newWorld2
-                    -- gameWorlds.at PlayerOne .~
+        -- let !game' = game
+        -- -- let !game' = game & gameWires.at PlayerOne .~ Just newWire1
+        -- --                  & gameWires.at PlayerTwo .~ Just newWire2
+        -- --                  & gameWorlds.at PlayerOne .~ Just newWorld1
+        -- --                  & gameWorlds.at PlayerTwo .~ Just newWorld2
+        --             -- gameWorlds.at PlayerOne .~
 
-        !newGameRenderer <- execStateT (runRenderControl renderControls) (game'^.gameRenderer)
-        let !game'' = game' & gameRenderer .~ newGameRenderer
+        -- -- !newGameRenderer <- execStateT (runRenderControl renderControls) (game'^.gameRenderer)
+        -- -- let !game'' = game' & gameRenderer .~ newGameRenderer
+        -- let game'' = game'
+  
+        -- Just newTime <- GLFW.getTime
+        -- let timeDelta = newTime - lastTime
+        -- sync . pushT $ Time timeDelta
 
-        -- | update game
-        render (game''^.gameRenderer)
+        -- -- | update game
+        -- -- render (game''^.gameRenderer)
 
-        newUIW1 `deepseq` newUIW2 `deepseq` userInputData `deepseq`
-                 game'' `deepseq` (loop eventsChan win (newUIW1, newUIW2) userInputData session' game'')
+        -- quit <- sync . sample $ doQuit
+        -- unless quit $ loop cd game'' newTime pushT
 
+-- type BoomWorldFRP a = ReaderT BoomWorld Reactive a
+-- type DeltaProgram a = Free BoomWorldDelta a
+-- type DeltaProgramEvent = Event (DeltaProgram ())
+     
+mergeAll :: [Event a] -> Event a
+mergeAll events = foldr (merge) never events
+         
+-- movementG :: BoomWorldFRP DeltaProgramEvent
+-- movementG = do
+--   moveEventSources <- view $ bWorldEvents .weMove . L.to Map.elems
+--   let move = mergeAll moveEventSources
+  
+--   let free = fmap (\(MoveEvent dir) -> do 
+--                                         mov <- defaultWorld (undefined::BoomWorld) $ do
+--                                                                                         Just eId <- getEntityByName "Player"
+--                                                                                         Just mov <- mkMovable eId
+--                                                                                         return mov
+--                                         Sys.setComponent (undefined::BoomWorld) mov (Position dir)) move
+  
+--   return $ coalesce (>>) free
 
-processEvent :: Event -> RWST GLFW.Window () UserInput IO ()
-processEvent ev =
-    case ev of
-      (EventError e s) -> do
-        lift $ print $ "Error :" ++ show (e, s)
-        win <- ask
-        lift $ GLFW.setWindowShouldClose win True
+-- fire :: BoomWorldFRP DeltaProgramEvent
+-- fire = do
+--   fireEventSources <- view $ bWorldEvents . weFire . L.to Map.elems
+--   let spawnEntityEvent = mergeAll fireEventSources
+--   let se = execute . fmap (\entityId -> do
+--                             (eSource, pushE) <- newEvent
+--                             return eSource) $ spawnEntityEvent
+--   return $ fmap (\eSource -> do
+--     eId <- defaultWorld (undefined::BoomWorld) $ spawnMovable "Player2" (100, 100) 0
+--     addFireEventSource eId eSource) se
 
-      (EventWindowSize _ width height) -> return ()
-          --modify $ \s -> s { stateCam = cameraUpdateProjection (fromIntegral width) (fromIntegral height) (stateCam s) }
-
-          --state <- get
-          --let rdr = asks stateRenderer state
-          --renderer' <- lift $ StrictState.execStateT
-           --             (runRenderControl $ do
-          --                 cam <- getCamera "MainCam"
-          --                 modifyCamera cam (cameraUpdateProjection (fromIntegral width) (fromIntegral height))
-          --              ) rdr
-          -- modify $ \s -> s { stateRenderer = renderer' }
-
-      (EventFramebufferSize _ width height) -> return ()
-          -- modify $ \s -> s
-          --   { stateWindowWidth  = width
-          --   , stateWindowHeight = height
-          --   }
-          -- adjustWindow
-
-      (EventMouseButton _ mb mbs _) -> do
-              if mbs == GLFW.MouseButtonState'Pressed
-                 then inputMouseButtonDown mb
-                 else inputMouseButtonUp mb
-
-      (EventCursorPos _ x y) ->
-          inputUpdateMousePos (x, y)
-
-      (EventKey win k scancode ks mk) -> do
-          when (ks == GLFW.KeyState'Pressed) $ do
-              when (k == GLFW.Key'Escape) $
-                lift $ GLFW.setWindowShouldClose win True
-              inputKeyDown k
-
-          when (ks == GLFW.KeyState'Released) $
-              inputKeyUp k
-      _ -> return ()
-
-
---processEvents :: MonadT m => m IO ()
-processEvents tc = do
-    --tc <- asks envEventsChan
-    me <- lift $ atomically $ tryReadTQueue tc
-    case me of
-      Just e -> do
-        processEvent e
-        processEvents tc
-      Nothing -> return ()
-
-
-data Event =
-    EventError           !GLFW.Error !String
-  | EventWindowPos       !GLFW.Window !Int !Int
-  | EventWindowSize      !GLFW.Window !Int !Int
-  | EventWindowClose     !GLFW.Window
-  | EventWindowRefresh   !GLFW.Window
-  | EventWindowFocus     !GLFW.Window !GLFW.FocusState
-  | EventWindowIconify   !GLFW.Window !GLFW.IconifyState
-  | EventFramebufferSize !GLFW.Window !Int !Int
-  | EventMouseButton     !GLFW.Window !GLFW.MouseButton !GLFW.MouseButtonState !GLFW.ModifierKeys
-  | EventCursorPos       !GLFW.Window !Double !Double
-  | EventCursorEnter     !GLFW.Window !GLFW.CursorState
-  | EventScroll          !GLFW.Window !Double !Double
-  | EventKey             !GLFW.Window !GLFW.Key !Int !GLFW.KeyState !GLFW.ModifierKeys
-  | EventChar            !GLFW.Window !Char
-  deriving Show
-
---------------------------------------------------------------------------------
-
--- Each callback does just one thing: write an appropriate Event to the events
--- TQueue.
-
-errorCallback           :: TQueue Event -> GLFW.Error -> String                                                            -> IO ()
-windowPosCallback       :: TQueue Event -> GLFW.Window -> Int -> Int                                                       -> IO ()
-windowSizeCallback      :: TQueue Event -> GLFW.Window -> Int -> Int                                                       -> IO ()
-windowCloseCallback     :: TQueue Event -> GLFW.Window                                                                     -> IO ()
-windowRefreshCallback   :: TQueue Event -> GLFW.Window                                                                     -> IO ()
-windowFocusCallback     :: TQueue Event -> GLFW.Window -> GLFW.FocusState                                                  -> IO ()
-windowIconifyCallback   :: TQueue Event -> GLFW.Window -> GLFW.IconifyState                                                -> IO ()
-framebufferSizeCallback :: TQueue Event -> GLFW.Window -> Int -> Int                                                       -> IO ()
-mouseButtonCallback     :: TQueue Event -> GLFW.Window -> GLFW.MouseButton   -> GLFW.MouseButtonState -> GLFW.ModifierKeys -> IO ()
-cursorPosCallback       :: TQueue Event -> GLFW.Window -> Double -> Double                                                 -> IO ()
-cursorEnterCallback     :: TQueue Event -> GLFW.Window -> GLFW.CursorState                                                 -> IO ()
-scrollCallback          :: TQueue Event -> GLFW.Window -> Double -> Double                                                 -> IO ()
-keyCallback             :: TQueue Event -> GLFW.Window -> GLFW.Key -> Int -> GLFW.KeyState -> GLFW.ModifierKeys            -> IO ()
-charCallback            :: TQueue Event -> GLFW.Window -> Char                                                             -> IO ()
-
-errorCallback           tc e s            = atomically $ writeTQueue tc $ EventError           e s
-windowPosCallback       tc win x y        = atomically $ writeTQueue tc $ EventWindowPos       win x y
-windowSizeCallback      tc win w h        = atomically $ writeTQueue tc $ EventWindowSize      win w h
-windowCloseCallback     tc win            = atomically $ writeTQueue tc $ EventWindowClose     win
-windowRefreshCallback   tc win            = atomically $ writeTQueue tc $ EventWindowRefresh   win
-windowFocusCallback     tc win fa         = atomically $ writeTQueue tc $ EventWindowFocus     win fa
-windowIconifyCallback   tc win ia         = atomically $ writeTQueue tc $ EventWindowIconify   win ia
-framebufferSizeCallback tc win w h        = atomically $ writeTQueue tc $ EventFramebufferSize win w h
-mouseButtonCallback     tc win mb mba mk  = atomically $ writeTQueue tc $ EventMouseButton     win mb mba mk
-cursorPosCallback       tc win x y        = atomically $ writeTQueue tc $ EventCursorPos       win x y
-cursorEnterCallback     tc win ca         = atomically $ writeTQueue tc $ EventCursorEnter     win ca
-scrollCallback          tc win x y        = atomically $ writeTQueue tc $ EventScroll          win x y
-keyCallback             tc win k sc ka mk = atomically $ writeTQueue tc $ EventKey             win k sc ka mk
-charCallback            tc win c          = atomically $ writeTQueue tc $ EventChar            win c
-
+-- gameFRP :: BoomWorldFRP DeltaProgramEvent 
+-- gameFRP = do
+--   e1 <- movementG
+--   e2 <- fire
+--   return $ mergeWith (>>) e1 e2
+  

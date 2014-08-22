@@ -1,0 +1,7 @@
+.cabal-sandbox
+TAGS
+*~
+*.hp
+*.prof
+cabal.sandbox.config
+dist/

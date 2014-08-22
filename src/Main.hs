@@ -6,9 +6,12 @@ module Main
 where
 
 import           Control.Concurrent
+import           Control.Concurrent.Async
 import           Render.Halo
 
 import           Game
 
-main = withWindow 1920 1080 "Boom" initialize
+main = do
+  w <- asyncBound $ withWindow 1920 1080 "Boom" initialize
+  wait w
   where initialize win = runGame win
