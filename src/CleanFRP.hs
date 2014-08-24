@@ -32,8 +32,8 @@ import           Control.Monad.State.Strict
 import Render.Halo                
 import qualified Render.Halo as H
 
-import Language.Haskell.Interpreter
-import Language.Haskell.Interpreter.Server
+import Language.Haskell.Interpreter hiding (lift)
+import qualified Language.Haskell.Interpreter as I
 import Language.Haskell.Interpreter.Unsafe
                  
 accum :: a -> Event (a -> a) -> Reactive (Behavior a)                 
@@ -277,7 +277,7 @@ applyDelta changeList1 changeList2 bw1 bw2 = (bw1', bw2', do
 run :: IO F
 run = do
   -- r <- runInterpreter initModule
-  r <- unsafeRunInterpreterWithArgs ["-package-db .cabal-sandbox/x86_64-linux-ghc-7.8.3-packages.conf.d/"] initModule
+  r <- unsafeRunInterpreterWithArgs ["-package-db .cabal-sandbox/x86_64-linux-ghc-7.8.2-packages.conf.d/"] initModule
   print "it worked"
   case r of
     Left err -> do
@@ -295,7 +295,7 @@ initModule :: Interpreter F
 initModule = do
   I.set [languageExtensions := 
     [RecursiveDo
-    ], searchPath := ["src/"]]
+    ]]
   setImports ["Prelude"]
   loadModules ["Gameplay"]
   setTopLevelModules ["Gameplay"]
