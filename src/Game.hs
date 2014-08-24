@@ -12,11 +12,16 @@
 -- |
 
 module Game where
+import System.Exit        
+import           GameSound
 import           Data.IORef
 import           Debug.Trace
 import qualified Input as I
 import           Input hiding (Move, StopMove)
        
+                 
+import qualified Graphics.Rendering.OpenGL as GL
+import           Graphics.Rendering.OpenGL (($=))
 import           Control.Concurrent.Async
 import           Control.Arrow
 import           Control.Exception
@@ -144,7 +149,7 @@ initRender game = do
   mapM (flip setViewport $ viewport2) [player2FloorRu, player2MainRu]
 
   mapM (flip setCamera $ cam0) [backgroundRu, bulletRu]
-  mapM (flip setCamera $ cam1) [player1FloorRu, player1MainRu]
+  _ <- mapM (flip setCamera $ cam1) [player1FloorRu, player1MainRu]
   mapM (flip setCamera $ cam2) [player2FloorRu, player2MainRu]
 
   mainWall <- getSprite "boom" "wallBasic"
@@ -153,7 +158,7 @@ initRender game = do
   let coords = evalState gen g 
                
 
-  traceShow coords $ mapM_ (\(x, y) -> 
+  mapM_ (\(x, y) -> 
          addSprite player1FloorRu mainWall(fromIntegral $ x*32, fromIntegral $ y*32) 0
                    ) coords
 
@@ -338,8 +343,8 @@ collectCommands start d = do
     collectCommands start (d >> s)
   
          
-renderLoop :: TVar Game -> Consumer (StateT Game RenderControl ()) IO ()
-renderLoop vGame = do
+-- renderLoop :: TVar Game -> Consumer (StateT Game RenderControl ()) IO ()
+renderLoop win fontRenderer vGame = do
   inp <- await
   -- lift $ GLFW.getTime >>= print
   --let Just entData = game^.gameEntityData
@@ -352,17 +357,29 @@ renderLoop vGame = do
   
   -- StateT Game RenderControl ()
   -- RenderControl -> StateT Renderer IO a
+  (newGame, newGameRenderer) <- lift $ catchAny (do
+ 
+    Just t1 <- GLFW.getTime
+    (newGame, newGameRenderer) <- runStateT (runRenderControl rc) (game^.gameRenderer)
+    Just t2 <- GLFW.getTime
+    render newGameRenderer
+    Just t3 <- GLFW.getTime
 
-  Just t1 <- lift GLFW.getTime
-  (newGame, newGameRenderer) <- lift $ runStateT (runRenderControl rc) (game^.gameRenderer)
-  Just t2 <- lift GLFW.getTime
-  lift $ render newGameRenderer
-  Just t3 <- lift GLFW.getTime
+    GL.viewport $= (GL.Position 0 0, GL.Size 1920 1080)
+    renderText fontRenderer (newDefaultCamera 1920 1080)
+    GLFW.swapBuffers win
+    newGame `seq` newGameRenderer `seq` return (newGame, newGameRenderer)
+
+    ) $ \e -> do
+      playFile "data/didntwork.wav"
+      print ("Render loop", e)
+      exitFailure
+      return $ (game, game^.gameRenderer)
   -- lift $ print $ map (*1000) [t2 - t1, t3 - t2, t3 - t1]
 
   lift . atomically $ modifyTVar vGame (\game -> newGame & gameRenderer .~ newGameRenderer)
 
-  renderLoop vGame 
+  renderLoop win fontRenderer vGame 
   
 tickrate :: Float
 tickrate = 16
@@ -419,10 +436,11 @@ runGame win = do
   (game) <- newGame win
   
   fm <- newFontManager
-  font <- newFont fm "data/font.otf" 16
+  font <- newFont fm "data/font.otf" 64
   textAtlas <- newFontAtlas font
   
-  newRenderManager <- execStateT (newFontRenderer textAtlas) (game^.gameRenderManager)
+  
+  (fontRenderer, newRenderManager) <- runStateT (newFontRenderer textAtlas) (game^.gameRenderManager)
   let game' = game & gameRenderManager .~ newRenderManager
   
   g <- newTVarIO game
@@ -432,7 +450,7 @@ runGame win = do
   _ <- async $ tickSync outputInput stepInput
   tId <- async $ gameSync g inputGame inputGame2 outputGame
   Just t <- GLFW.getTime
-  runEffect $ fromInput renderInput >-> collectCommands t (return ()) >-> renderLoop g
+  runEffect $ fromInput renderInput >-> collectCommands t (return ()) >-> renderLoop win fontRenderer g
 
   wait tId 
  

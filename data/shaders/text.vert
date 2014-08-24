@@ -30,22 +30,22 @@ void main()
     vec2 tileMeshCoords = vec2(0,0);
     texCoord = thisChar.textureCoord;
     if (gl_VertexID % 6 == 0) {
-        tileMeshCoords = size*vec2(0, 0);
+        tileMeshCoords = size*vec2(0, -thisChar.charSize.y);
         texCoord += vec2(0, thisChar.charSize.y);
     } else if (gl_VertexID % 6 == 1) {
-        tileMeshCoords = size*vec2(0, thisChar.charSize.y);
+        tileMeshCoords = size*vec2(0, 0);
         texCoord += vec2(0, 0);
     } else if (gl_VertexID % 6 == 2) {
-        tileMeshCoords = size*vec2(thisChar.charSize.x, thisChar.charSize.y);
+        tileMeshCoords = size*vec2(thisChar.charSize.x, 0);
         texCoord += vec2(thisChar.charSize.x, 0);
     } else if (gl_VertexID % 6 == 3) {
-        tileMeshCoords = size*vec2(thisChar.charSize.x, thisChar.charSize.y);
+        tileMeshCoords = size*vec2(thisChar.charSize.x, 0);
         texCoord += vec2(thisChar.charSize.x, 0);
     } else if (gl_VertexID % 6 == 4) {
-        tileMeshCoords = size*vec2(thisChar.charSize.x, 0);
+        tileMeshCoords = size*vec2(thisChar.charSize.x, -thisChar.charSize.y);
         texCoord += vec2(thisChar.charSize.x, thisChar.charSize.y);
     } else if (gl_VertexID % 6 == 5) {
-        tileMeshCoords = size*vec2(0, 0);
+        tileMeshCoords = size*vec2(0, -thisChar.charSize.y);
         texCoord += vec2(0, thisChar.charSize.y);
     }
 

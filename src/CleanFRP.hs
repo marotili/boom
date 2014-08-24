@@ -125,7 +125,7 @@ data Game = Game
      , _gameRenderer      :: !Renderer
      , _gameEntityData :: !(Maybe EntityData)
      }
-
+     
 makeLenses ''Game
 makeLenses ''EntityData
 
@@ -143,7 +143,7 @@ spawnEntity :: (EntityId -> Reactive ()) -> BoomWorldDelta EntityId
 spawnEntity pushId = liftF (DeltaSpawn pushId id)
             
 removeEntity :: EntityId -> BoomWorldDelta ()          
-removeEntity eId = traceShow (eId) $ liftF (DeltaRemoveEntity eId ())
+removeEntity eId = liftF (DeltaRemoveEntity eId ())
 
 makeLenses ''BoomWorld
 makeLenses ''BoomWorldInput
@@ -226,15 +226,12 @@ enterTheGame bBw = do
   behMov <- spawnBullets bBw 
   
   let e = mergeWith (>>) behMov (moveEvents) 
-  listen e print
-  listen behMov print
-  listen moveEvents print
   return e
   
 add (x, y) (x0, y0) = (x + x0, y + y0)
  
 handleEvents :: [BoomWorldDeltaApplied] -> [BoomWorldDeltaApplied] -> StateT Game RenderControl ()
-handleEvents  eventList1 eventList2 = traceShow eventList1 $ do
+handleEvents  eventList1 eventList2 = do
   mapM_ handleEvent1 eventList1
   mapM_ handleEvent2 eventList2
   -- return $ rc1 >> rc2
@@ -250,7 +247,7 @@ handleEvents  eventList1 eventList2 = traceShow eventList1 $ do
       (EntityData (p1Body, p1Feet, p1Gun) (p2Body, p2Feet, p2Gun) _) <- use $ gameEntityData.to fromJust
       lift $ H.rotate p1Gun rot
 
-    handleEvent1 ((DeltaSpawn' eId)) = traceShow ("spawn", eId) $ do
+    handleEvent1 ((DeltaSpawn' eId)) = do
       spriteInst <- lift $ do
         ru <- getSpriteRenderUnit "Bullets"
         sprite <- getSprite "boom" "bullet"
@@ -285,7 +282,7 @@ applyDelta changeList1 changeList2 bw1 bw2 = (bw1', bw2', do
   handleEvents deltaApplied1 deltaApplied2
   return ())
   where
-    (deltaApplied1, bw1') = traceShow ("deltaApplied1", fst $ runState (applyDelta' changeList1) bw1) $ runState (applyDelta' changeList1) bw1
+    (deltaApplied1, bw1') = runState (applyDelta' changeList1) bw1
     (deltaApplied2, bw2') = runState (applyDelta' changeList2) bw2
     applyDelta' d@(Free (DeltaMove id pos n)) = do
       bPositions %= Map.update (\oldPos -> Just (add oldPos pos)) id
@@ -307,7 +304,7 @@ applyDelta changeList1 changeList2 bw1 bw2 = (bw1', bw2', do
       bNextEntityId += 1
       bPendingActions %= mappend [(r eId)]
       rc <- applyDelta' (g eId)
-      return $ traceShow ("Spawn") $ (DeltaSpawn' eId) : rc
+      return $ (DeltaSpawn' eId) : rc
   
     applyDelta' d@(Free (DeltaRemoveEntity eId n)) = do
       rc <- applyDelta' n

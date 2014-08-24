@@ -19,10 +19,13 @@ executable boom
   other-modules:       
     Game
     CleanFRP
+    GameSound
   -- other-extensions:    
   build-depends:       
-                                                      base >=4.7 && <4.8
+                                                            base >=4.7 && <4.8
                        , GLFW-b >= 1.4.6
+                       , OpenGL >= 2.9.2.1
+                       , OpenGL >= 2.9.2.1
                        , async >= 2.0.1.5
                        , containers >= 0.5.5.1
                        , deepseq
@@ -36,9 +39,10 @@ executable boom
                        , netwire
                        , pipes
                        , pipes-concurrency
+                       , random
                        , sodium >= 0.10.0.2
                        , stm
-                     , random
+                        , ALUT
   hs-source-dirs:      src/
   default-language:    Haskell2010
   ghc-options: -fprof-auto -fprof-cafs -rtsopts -threaded
