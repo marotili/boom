@@ -7,8 +7,13 @@
 {-# LANGUAGE RecursiveDo       #-}
 {-# LANGUAGE TypeSynonymInstances       #-}
 {-# LANGUAGE FlexibleInstances       #-}
+{-# LANGUAGE DeriveDataTypeable       #-}
+{-# LANGUAGE StandaloneDeriving       #-}
 module CleanFRP where
 
+import Prelude
+import System.Exit
+import Data.Typeable
 import           Control.Monad.Free
 import           Control.Applicative
 import           Control.Lens hiding (both, coerce)
@@ -22,9 +27,14 @@ import           Data.Maybe
 import           Collision
 import           FRP.Sodium hiding (merge, accum)
 import qualified FRP.Sodium as S
+import qualified FRP.Sodium.Context as SC
 import           Control.Monad.State.Strict
 import Render.Halo                
 import qualified Render.Halo as H
+
+import Language.Haskell.Interpreter
+import Language.Haskell.Interpreter.Server
+import Language.Haskell.Interpreter.Unsafe
                  
 accum :: a -> Event (a -> a) -> Reactive (Behavior a)                 
 accum z efa = S.accum z $ split . coalesce mappend . fmap (:[]) $ efa
@@ -84,7 +94,11 @@ data BoomWorld = BoomWorld
   , _bNextEntityId :: EntityId
   
   , _bPendingActions :: [Reactive ()]
-  }
+  } deriving (Typeable)
+deriving instance Typeable Plain
+deriving instance Typeable SC.Behavior
+deriving instance Typeable SC.Event
+deriving instance Typeable SC.Reactive
   
 data BoomWorldDelta' next =
   DeltaMove EntityId (Float, Float) next
@@ -93,7 +107,7 @@ data BoomWorldDelta' next =
   | DeltaSpawn (EntityId -> Reactive ()) (EntityId -> next)
   | DeltaRemoveEntity EntityId next
   | DeltaId next
-  deriving (Functor) 
+  deriving (Functor, Typeable) 
   
 data BoomWorldDeltaApplied =
   DeltaMove' EntityId (Float, Float)
@@ -147,87 +161,10 @@ removeEntity eId = liftF (DeltaRemoveEntity eId ())
 
 makeLenses ''BoomWorld
 makeLenses ''BoomWorldInput
-           
-data Bullets = Bullets (Map.Map EntityId Float) deriving (Show)
-emptyBullets = Bullets Map.empty
-removeBullet :: EntityId -> Bullets -> Bullets
-removeBullet eId (Bullets m) = (Bullets $ Map.delete eId m)
-             
-addBullet :: EntityId -> Bullets -> Bullets
-addBullet eId (Bullets m) = Bullets $ Map.insert eId 0 m
-          
-tickBullets :: Float -> Bullets -> Bullets
-tickBullets (dt) (Bullets m) = Bullets $ Map.map (+dt) m
-            
-bulletsToRemove :: Bullets -> [EntityId]
-bulletsToRemove (Bullets m) = Map.keys $ Map.filter (>100) m
-                
-moveBullets :: Float -> Bullets -> BoomWorldDelta ()
-moveBullets dt (Bullets m) = sequence_ $ map (\eId -> deltaMove eId (-dt, -dt)) $ Map.keys m
-                
+               
 merge a b = split . coalesce mappend . fmap (:[]) $ S.merge a b
 merge3 a b c = split . coalesce mappend . fmap (:[]) $ S.merge (S.merge a b) c
-           
-spawnBullets :: Behavior BoomWorld -> Reactive (Event (BoomWorldDelta ()))
-spawnBullets bBw = do
-  bw <- sample bBw
-  let input = bw^.bInput
-  -- behEntities <- accum [] $ (:) <$> getPlayerPos (input^.bwFire) :: Reactive (Behavior [(Float, Float)])
-  
-  let eNew = execute $ spawn <$> (input^.bwFire)
-  
-  let f = fst <$> eNew :: Event (Event EntityId)
-  bf <- hold never f :: Reactive (Behavior (Event EntityId))
-  let b = switchE bf :: Event EntityId
-  
-  rec
-    bullets <- accum emptyBullets $ merge3
-      (addBullet <$> b)
-      (removeBullet <$> split toRemove)
-      (tickBullets <$> (input^.bwTick))
-
-    let toRemove = bulletsToRemove <$> updates bullets
-  let movement = snapshot moveBullets (input^.bwTick) bullets
-
-  -- let behMovement = snapshot (\_ entities -> entities) (input^.bwTick) behEntities
-  -- let behMov = fmap (\poss -> sequence_ $ map (do
-  --   eId <- spawnEntity
-  --   deltaMove eId
-  --   ) poss) behMovement :: Event (BoomWorldDelta ())
-  
-  return $ merge3 (snd <$> eNew) movement ((sequence_ . fmap removeEntity) <$> toRemove)
-           
-  where
-    when :: Event a -> Getter BoomWorld b -> Event b
-    when evt g = snapshot (\_ w -> w^.g) evt bBw
-
-    getPlayerPos :: Event a -> Event (Float, Float)
-    getPlayerPos evt = when evt $ bPositions.at 1.to fromJust
-  
-    getPlayerPos' = sample bBw >>= \w -> return $ w^.bPositions.at 1.to fromJust
-  
-    spawn _ = do
-        (evEntityId, pushEntityId) <- newEvent
-        startPos <- getPlayerPos'
-
-        return (evEntityId, do
-          _ <- spawnEntity pushEntityId
-          return ()
-          )
-
-enterTheGame :: Behavior BoomWorld -> Reactive (Event (BoomWorldDelta ()))
-enterTheGame bBw = do
-  bw <- sample bBw
-  let input = bw^.bInput
-  speed <- (moveDirection $ input^.bwMoveEvents)
-  let movement = snapshot (\tick (vx, vy) -> (vx*tick, vy*tick)) (input^.bwTick) speed
-  let moveEvents = deltaMove 1 <$> movement :: Event (BoomWorldDelta ())
-  
-  behMov <- spawnBullets bBw 
-  
-  let e = mergeWith (>>) behMov (moveEvents) 
-  return e
-  
+ 
 add (x, y) (x0, y0) = (x + x0, y + y0)
  
 handleEvents :: [BoomWorldDeltaApplied] -> [BoomWorldDeltaApplied] -> StateT Game RenderControl ()
@@ -317,12 +254,6 @@ applyDelta changeList1 changeList2 bw1 bw2 = (bw1', bw2', do
     applyDelta' d@(Pure _) = do
       return []
         
-moveDirection :: Event (MoveEvent Move) -> Reactive (Behavior (Float, Float))   
-moveDirection eMove = hold (0, 0) $ fmap speed eMove
-  where speed :: MoveEvent Move -> (Float, Float)
-        speed (MoveEvent dir) = dir
-        speed (StopMoveEvent) = (0, 0)              
-  
 -- test = do
 --   (bw, pW) <- newBoomWorld
 --   ev <- sync $ enterTheGame bw
@@ -343,4 +274,34 @@ moveDirection eMove = hold (0, 0) $ fmap speed eMove
 --   sync $ (w^.bInput.bwSendMoveEvent) (StopMoveEvent)
 --   sync $ (w^.bInput.bwSendTick) (16::Float)
 --   return ()
+run :: IO F
+run = do
+  -- r <- runInterpreter initModule
+  r <- unsafeRunInterpreterWithArgs ["-package-db .cabal-sandbox/x86_64-linux-ghc-7.8.3-packages.conf.d/"] initModule
+  print "it worked"
+  case r of
+    Left err -> do
+      print err
+      exitFailure
+      return $ const (REBWD $ return never)
+    Right func -> 
+      return $ func
+
+newtype BBW = BBW (Behavior BoomWorld) deriving (Typeable)
+newtype REBWD = REBWD (Reactive (Event (BoomWorldDelta ()))) deriving (Typeable)
+type F = BBW -> REBWD
   
+initModule :: Interpreter F
+initModule = do
+  I.set [languageExtensions := 
+    [RecursiveDo
+    ], searchPath := ["src/"]]
+  setImports ["Prelude"]
+  loadModules ["Gameplay"]
+  setTopLevelModules ["Gameplay"]
+--  fun <- interpret "enterTheGame" (as :: SC.Behavior Plain BoomWorld -> Reactive (Event (BoomWorldDelta ())))
+  t <- interpret "enterTheGame" (as :: BBW -> REBWD)
+  -- let fun = const (return never) :: F
+  return t
+
+enterTheGame' = run

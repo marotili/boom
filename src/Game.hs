@@ -256,16 +256,22 @@ newtype Tick = Tick Float deriving (Show)
      
 gameSync vGame inputGame inputGame2 outputGame = do
   game <- atomically . readTVar $ vGame
-  deltaEv <- sync $ enterTheGame (fromJust $ game^.gameWorlds.at PlayerOne)
-  deltaEv2 <- sync $ enterTheGame (fromJust $ game^.gameWorlds.at PlayerTwo)
+  gameFunc <- enterTheGame'
+  deltaEv <- sync $ 
+    let REBWD f = gameFunc (BBW $ fromJust $ game^.gameWorlds.at PlayerOne) in f `seq` f
+  gameFunc `seq` print "after delta"
+  deltaEv2 <- sync $ 
+    let REBWD f = gameFunc (BBW $ fromJust $ game^.gameWorlds.at PlayerTwo) in f `seq` f
 
-  vDelta1 <- newIORef (deltaId)
-  vDelta2 <- newIORef (deltaId)
+  vDelta1 <- deltaEv `seq` newIORef (deltaId)
+  vDelta2 <- deltaEv2 `seq` newIORef (deltaId)
 
+  print "before listen"
   unlisten <- sync $ do
     S.listen deltaEv (\delta -> do
             modifyIORef vDelta1 (\old -> old >> delta)
             )
+  print "after listen"
 
   unlisten2 <- sync $ do
      S.listen deltaEv2 (\delta -> do
@@ -286,6 +292,8 @@ gameLoop vDelta1 vDelta2 vGame = do
 
   game <- lift $ atomically $ readTVar vGame
 
+  lift $ print "read game"
+
   let Just world1' = game^.gameWorlds.at PlayerOne
   let Just world2' = game^.gameWorlds.at PlayerTwo
   world1 <- lift . sync $ sample world1'
@@ -300,6 +308,8 @@ gameLoop vDelta1 vDelta2 vGame = do
   delta2 <- lift $ readIORef vDelta2
   lift $ writeIORef vDelta1 (deltaId)
   lift $ writeIORef vDelta2 (deltaId)
+
+  lift $ print "receive delta"
   
   (rc, pendingActions1, pendingActions2) <- lift $ catchAny (do
     let Just pushGame1 = game^.gamePushWorld.at PlayerOne
@@ -319,13 +329,15 @@ gameLoop vDelta1 vDelta2 vGame = do
       pushGame2 bw2'
 
       return (rc, pA1, pA2)
-
     ) $ \e -> do
       print e
       return (return (), [], [])
+  lift $ print "sync game"
   
   mapM (lift . sync) pendingActions1
   mapM (lift . sync) pendingActions2
+
+  lift $ print "pending actions"
 
   rc `seq` P.yield rc
 
