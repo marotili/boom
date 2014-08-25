@@ -64,6 +64,7 @@ import           CleanFRP
 import           Pipes
 import qualified Pipes as P
 import           Pipes.Concurrent
+import qualified Pipes.Concurrent as P
 
 data Wall = Wall { _wallHitpoints :: Int } deriving (Show, Generic)
 newWall = Wall { _wallHitpoints = 1 }
@@ -105,28 +106,6 @@ initPlayer = do
   
   return $ EntityData (p1Body, p1Feet, p1Gun) (p2Body, p2Feet, p2Gun) Map.empty
 
--- setPlayer1Data :: (Float, Float) -> (Float, Float) -> RenderControl ()
--- setPlayer1Data pos (feetRot, mainRot) = do
---   player1MainRu <- getSpriteRenderUnit "Main1"
---   player2MainRu <- getSpriteRenderUnit "Main2"
-
---   setPosition player1MainRu "Player1Feet" pos
---   setRotation player1MainRu "Player1Feet" feetRot
-
---   setPosition player1MainRu "Player1MainBody" pos
---   setRotation player1MainRu "Player1Gun" mainRot
-
---   setPosition player1MainRu "Player1Gun" pos
---   setRotation player1MainRu "Player1Gun" mainRot
-
---   setPosition player2MainRu "Player2Feet" pos
---   setRotation player2MainRu "Player2Feet" feetRot
-
---   setPosition player2MainRu "Player2MainBody" pos
---   setRotation player2MainRu "Player2Gun" mainRot
-
---   setPosition player2MainRu "Player2Gun" pos
---   setRotation player2MainRu "Player2Gun" mainRot
 initRender :: Game -> RenderControl EntityData
 initRender game = do
   cam0 <- newCamera "MainCam" (512, 1024)
@@ -221,6 +200,21 @@ constB = return . pure
 instance Monoid Int where
          mempty = 0
          mappend a b = a + b
+         
+    
+newtype Tick = Tick Float deriving (Show)
+     
+data Root = Root
+  { _rOutputInput :: P.Output (Either (Free BoomActions ()) Tick)
+  , _rInputGame :: P.Input (Either (Free BoomActions ()) Tick)
+  , _rOutputGame :: Output (StateT Game RenderControl ())
+  , _rInputRender :: P.Input (StateT Game RenderControl ())
+  , _rGame :: TVar Game
+  , _rKeyInput :: Sys.Input
+  , _rStepKeyInput :: IO ()
+  }
+
+makeLenses ''Root
      
 movement :: InputFRP (Event (Free BoomActions ()))
 movement = do
@@ -252,42 +246,41 @@ movement = do
   
   return $ mergeWith (>>) (mergeWith (>>) stopMoveE move) eFire
   
-newtype Tick = Tick Float deriving (Show)
-     
-gameSync vGame inputGame inputGame2 outputGame = do
-  game <- atomically . readTVar $ vGame
-  gameFunc <- enterTheGame'
-  deltaEv <- sync $ 
-    let REBWD f = gameFunc (BBW $ fromJust $ game^.gameWorlds.at PlayerOne) in f `seq` f
-  gameFunc `seq` print "after delta"
-  deltaEv2 <- sync $ 
-    let REBWD f = gameFunc (BBW $ fromJust $ game^.gameWorlds.at PlayerTwo) in f `seq` f
+gameSync root = do
+  game <- atomically . readTVar $ (root^.rGame)
+  
+  vDelta1 <- newIORef (deltaId)
+  vDelta2 <- newIORef (deltaId)
+  
+  vReload <- newIORef False
 
-  vDelta1 <- deltaEv `seq` newIORef (deltaId)
-  vDelta2 <- deltaEv2 `seq` newIORef (deltaId)
+  frp <- initGame vDelta1 vDelta2 (game^.gameWorlds.at PlayerOne . L.to fromJust) (game^.gameWorlds.at PlayerTwo . L.to fromJust)
+  
+  reloadEvent <- syncInput (root^.rKeyInput) $ keyDown GLFW.Key'R
+  sync $ S.listen reloadEvent (\_ -> do
+    writeIORef vReload True
+    return ()
+    )
 
-  print "before listen"
-  unlisten <- sync $ do
-    S.listen deltaEv (\delta -> do
-            modifyIORef vDelta1 (\old -> old >> delta)
-            )
-  print "after listen"
-
-  unlisten2 <- sync $ do
-     S.listen deltaEv2 (\delta -> do
-            modifyIORef vDelta2 (\d -> d >> delta)
-            -- old <- readIORef vDelta2
-            -- writeIORef vDelta2 (old >> delta)
-      )
-
-  runEffect $ (fromInput (inputGame `mappend` inputGame2)) >-> gameLoop vDelta1 vDelta2 vGame >-> toOutput outputGame
+  runEffect $ (fromInput (root^.rInputGame)) >-> gameLoop vDelta1 vDelta2 (root^.rGame) vReload frp >-> toOutput (root^.rOutputGame)
   performGC
      
 -- gameLoop :: Event ([BoomWorldDelta]) -> Output [BoomWorldDelta] -> Game -> Consumer (Either (Free BoomActions ()) (Tick)) IO ()
 catchAny :: IO a -> (SomeException -> IO a) -> IO a
 catchAny = Control.Exception.catch
 
-gameLoop vDelta1 vDelta2 vGame = do
+gameLoop vDelta1 vDelta2 vGame vReload frp = do
+         
+  frp' <- lift $ do
+    reload <- readIORef vReload
+    if reload then do
+        writeIORef vReload False
+        game <- atomically . readTVar $ vGame
+        newFrp <- reloadGame vDelta1 vDelta2 (game^.gameWorlds.at PlayerOne . L.to fromJust) (game^.gameWorlds.at PlayerTwo . L.to fromJust) frp
+        return newFrp
+    else
+      return frp
+
   commands <- await
 
   game <- lift $ atomically $ readTVar vGame
@@ -311,7 +304,8 @@ gameLoop vDelta1 vDelta2 vGame = do
 
   lift $ print "receive delta"
   
-  (rc, pendingActions1, pendingActions2) <- lift $ catchAny (do
+  -- (rc, pendingActions1, pendingActions2) <- lift $ catchAny (do
+  (rc, pendingActions1, pendingActions2) <- lift $ (do
     let Just pushGame1 = game^.gamePushWorld.at PlayerOne
     let Just pushGame2 = game^.gamePushWorld.at PlayerTwo
 
@@ -329,9 +323,9 @@ gameLoop vDelta1 vDelta2 vGame = do
       pushGame2 bw2'
 
       return (rc, pA1, pA2)
-    ) $ \e -> do
-      print e
-      return (return (), [], [])
+    ) -- $ \e -> do
+      -- print e
+      -- return (return (), [], [])
   lift $ print "sync game"
   
   mapM (lift . sync) pendingActions1
@@ -341,7 +335,7 @@ gameLoop vDelta1 vDelta2 vGame = do
 
   rc `seq` P.yield rc
 
-  gameLoop vDelta1 vDelta2 vGame
+  gameLoop vDelta1 vDelta2 vGame vReload frp'
   
 type RC = StateT Game RenderControl ()
 collectCommands :: Double -> RC -> Pipe RC RC IO ()
@@ -356,20 +350,21 @@ collectCommands start d = do
   
          
 -- renderLoop :: TVar Game -> Consumer (StateT Game RenderControl ()) IO ()
-renderLoop win fontRenderer vGame = do
+renderLoop win fontRenderer root = do
   inp <- await
   -- lift $ GLFW.getTime >>= print
   --let Just entData = game^.gameEntityData
   --let !renderControls = handleEvents entData inp (Pure ())
   
   --rc <- lift . atomically $ modifyTVar vGame (execStateT inp)
-  game <- lift . atomically $ readTVar vGame
+  game <- lift . atomically $ readTVar (root^.rGame)
   
   let rc = execStateT inp game
   
   -- StateT Game RenderControl ()
   -- RenderControl -> StateT Renderer IO a
-  (newGame, newGameRenderer) <- lift $ catchAny (do
+  -- (newGame, newGameRenderer) <- lift $ catchAny (do
+  (newGame, newGameRenderer) <- lift $ (do
  
     Just t1 <- GLFW.getTime
     (newGame, newGameRenderer) <- runStateT (runRenderControl rc) (game^.gameRenderer)
@@ -382,16 +377,16 @@ renderLoop win fontRenderer vGame = do
     GLFW.swapBuffers win
     newGame `seq` newGameRenderer `seq` return (newGame, newGameRenderer)
 
-    ) $ \e -> do
-      playFile "data/didntwork.wav"
-      print ("Render loop", e)
-      exitFailure
-      return $ (game, game^.gameRenderer)
+    ) -- $ \e -> do
+      -- playFile "data/didntwork.wav"
+      -- print ("Render loop", e)
+      -- exitFailure
+      -- return $ (game, game^.gameRenderer)
   -- lift $ print $ map (*1000) [t2 - t1, t3 - t2, t3 - t1]
 
-  lift . atomically $ modifyTVar vGame (\game -> newGame & gameRenderer .~ newGameRenderer)
+  lift . atomically $ modifyTVar (root^.rGame) (\game -> newGame & gameRenderer .~ newGameRenderer)
 
-  renderLoop win fontRenderer vGame 
+  renderLoop win fontRenderer root 
   
 tickrate :: Float
 tickrate = 16
@@ -414,22 +409,22 @@ genTicks stepInput = do
         lift $ stepInput
         genTicks' newTime (dt' `mod` round tickrate)
   
-loopInput var outputInput2 = do
+loopInput var root = do
   f <- lift $ atomically $ readTQueue var
-  f `seq` P.yield (Left f) >-> (toOutput outputInput2)
-  loopInput var outputInput2
+  f `seq` P.yield (Left f) >-> (toOutput (root^.rOutputInput))
+  loopInput var root
   
-inputSync keyInput outputInput2 = do
+inputSync root = do
     var <- newTQueueIO
-    syncInput keyInput $ do
+    syncInput (root^.rKeyInput) $ do
         e <- movement
         lift $ S.listen e (\f -> do
           atomically $ writeTQueue var f
           )
-    runEffect $ loopInput var outputInput2
+    runEffect $ loopInput var root
     
-tickSync outputInput stepInput = do
-    runEffect $ for (genTicks stepInput) (P.yield . Right) >-> (toOutput outputInput)
+tickSync r = do
+    runEffect $ for (genTicks (r^.rStepKeyInput)) (P.yield . Right) >-> (toOutput (r^.rOutputInput))
     performGC
 
 runGame win = do
@@ -439,11 +434,10 @@ runGame win = do
   (keyInput, stepInput) <- initInput win
   -- a <- syncInput input $ keyDown GLFW.Key'Escape
   doQuit <- syncInput keyInput mkDoQuit
+  sync $ S.listen (updates doQuit) $ \_ -> exitSuccess
   
   (outputInput, inputGame) <- spawn Unbounded
-  (outputInput2, inputGame2) <- spawn Unbounded
-  (outputGame, renderInput) <- spawn Unbounded
-
+  (outputGame, inputRender) <- spawn Unbounded
   print "Print this to avoid segmentation fault"
   (game) <- newGame win
   
@@ -451,20 +445,28 @@ runGame win = do
   font <- newFont fm "data/font.otf" 64
   textAtlas <- newFontAtlas font
   
-  
   (fontRenderer, newRenderManager) <- runStateT (newFontRenderer textAtlas) (game^.gameRenderManager)
   let game' = game & gameRenderManager .~ newRenderManager
   
-  g <- newTVarIO game
-  
+  g <- newTVarIO game'
+   
+  let r = Root { _rOutputInput = outputInput
+               , _rInputGame = inputGame
+               , _rOutputGame = outputGame
+               , _rInputRender = inputRender
+               , _rGame = g
+               , _rKeyInput = keyInput
+               , _rStepKeyInput = stepInput
+               }
+ 
   -- input loop
-  _ <- async $ inputSync keyInput outputInput2 
-  _ <- async $ tickSync outputInput stepInput
-  tId <- async $ gameSync g inputGame inputGame2 outputGame
+  i <- async $ inputSync r
+  _ <- async $ tickSync r
+  tId <- async $ gameSync r
   Just t <- GLFW.getTime
-  runEffect $ fromInput renderInput >-> collectCommands t (return ()) >-> renderLoop win fontRenderer g
+  runEffect $ fromInput (r^.rInputRender) >-> collectCommands t (return ()) >-> renderLoop win fontRenderer r
 
-  wait tId 
+  wait i 
  
   return ()
 

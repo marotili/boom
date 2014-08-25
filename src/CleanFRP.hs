@@ -283,13 +283,47 @@ run = do
     Left err -> do
       print err
       exitFailure
-      return $ const (REBWD $ return never)
+      return $ const (WrapR $ return never)
     Right func -> 
       return $ func
 
-newtype BBW = BBW (Behavior BoomWorld) deriving (Typeable)
-newtype REBWD = REBWD (Reactive (Event (BoomWorldDelta ()))) deriving (Typeable)
-type F = BBW -> REBWD
+newtype WrapB = WrapB { unWrapB :: Behavior BoomWorld } deriving (Typeable)
+newtype WrapR = WrapR { unWrapR :: Reactive (Event (BoomWorldDelta ())) } deriving (Typeable)
+type F = WrapB -> WrapR
+     
+data GameFRP = GameFRP
+  { gameFRP :: F
+  , unlistener1 :: IO ()
+  , unlistener2 :: IO ()
+  }
+  
+-- initGame :: Behavior BoomWorld -> Behavior BoomWorld -> IO GameFRP
+initGame vDelta1 vDelta2 bw1 bw2 = do
+  func <- enterTheGame'
+  deltaEv <- sync $ unWrapR $ func (WrapB bw1)
+  deltaEv2 <- sync $ unWrapR $ func (WrapB bw2)
+  
+  unlistener1 <- sync $ do
+    S.listen deltaEv (\delta -> do
+      modifyIORef vDelta1 (\old -> old >> delta)
+      )
+
+  unlistener2 <- sync $ do
+    S.listen deltaEv2 (\delta -> do
+      modifyIORef vDelta2 (\old -> old >> delta) 
+      )
+  
+  return GameFRP
+    { gameFRP = func
+    , unlistener1 = unlistener1
+    , unlistener2 = unlistener2
+    }
+    
+reloadGame vDelta1 vDelta2 bw1 bw2 frp = do
+  unlistener1 frp
+  unlistener2 frp
+  
+  initGame vDelta1 vDelta2 bw1 bw2
   
 initModule :: Interpreter F
 initModule = do
@@ -300,7 +334,7 @@ initModule = do
   loadModules ["Gameplay"]
   setTopLevelModules ["Gameplay"]
 --  fun <- interpret "enterTheGame" (as :: SC.Behavior Plain BoomWorld -> Reactive (Event (BoomWorldDelta ())))
-  t <- interpret "enterTheGame" (as :: BBW -> REBWD)
+  t <- interpret "enterTheGame" (as :: F)
   -- let fun = const (return never) :: F
   return t
 

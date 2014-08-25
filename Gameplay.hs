@@ -112,8 +112,8 @@ runTest :: IO ()
 runTest = print "test"
 
 -- enterTheGame :: Behavior BoomWorld -> Reactive (Event (BoomWorldDelta ()))
-enterTheGame :: BBW -> REBWD
-enterTheGame (BBW bBw) = REBWD $ do
+enterTheGame :: F
+enterTheGame (WrapB bBw) = WrapR $ do
   bw <- sample bBw
   let input = bw^.bInput
   speed <- (moveDirection $ input^.bwMoveEvents)
@@ -128,6 +128,6 @@ enterTheGame (BBW bBw) = REBWD $ do
 moveDirection :: Event (MoveEvent Move) -> Reactive (Behavior (Float, Float))   
 moveDirection eMove = hold (0, 0) $ fmap speed eMove
   where speed :: MoveEvent Move -> (Float, Float)
-        speed (MoveEvent dir) = dir
+        speed (MoveEvent (x, y)) = (x, y)
         speed (StopMoveEvent) = (0, 0)              
   
