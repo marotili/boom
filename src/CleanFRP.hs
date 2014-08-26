@@ -7,6 +7,7 @@
 {-# LANGUAGE RecursiveDo       #-}
 {-# LANGUAGE TypeSynonymInstances       #-}
 {-# LANGUAGE FlexibleInstances       #-}
+{-# LANGUAGE FlexibleContexts       #-}
 {-# LANGUAGE DeriveDataTypeable       #-}
 {-# LANGUAGE StandaloneDeriving       #-}
 module CleanFRP where
