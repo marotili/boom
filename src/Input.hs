@@ -20,12 +20,13 @@ import           HSys                     hiding (InputWire, Move, move)
 
 import           Linear
 
-type Direction = (Int, Int)
+type Direction = (Float, Float)
 
 data BoomActions next =
     Move !Direction !next
     | StopMove !next
-    | LookAt !Direction !next
+    | LookAt !(Float, Float) !next
+    | StopLookAt !next
     | Shoot !next
     deriving (Show, Functor)
 

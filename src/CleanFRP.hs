@@ -10,15 +10,71 @@
 {-# LANGUAGE FlexibleContexts       #-}
 {-# LANGUAGE DeriveDataTypeable       #-}
 {-# LANGUAGE StandaloneDeriving       #-}
-module CleanFRP where
+module CleanFRP 
+( BoomWorld(..)
+, bInput
+, bRotations
+, bwSendMoveEvent
+, bwLookAtEvent
+, MoveEvent(..)
+, LookEvent(..)
+, bwSendFire
+, Game(..)
+, EntityData(..)
+, newBoomWorld
+, gameWorlds
+, gamePushWorld
+, gameRenderer
+, gameEntityData
+, FireEvent(..)
+, EntityManager(..)
+, Player(..)
+  
+, deltaId
+, bwSendTick
+, flattenDelta
+, gameEntityManager
+, collisionSystem
+, applyDelta
+, bPendingActions
+, gameRenderManager
+, merge
+, mergeAll
+, bwSendLookAtEvent
+  
+-- Gameplay
+, MoveEvents(..)
+, F, WrapB(..), WrapR(..)
+  
+, spawnEntity
+, deltaRotate
+, deltaMove
+, accum
+, BoomWorldDelta
+, Behavior
+, EntityId
+, bwFire
+, bwTick
+, deltaRender
+, deltaRenderAdd
+, merge3
+, merge4
+, bPositions
+, removeEntity
+, bwMoveEvents
+) where
 
-import Prelude
-import System.Exit
-import Data.Typeable
+import           Prelude
+import           System.Exit
+import           Linear
+import           GHC.Float
+import           Data.Octree (Vector3 (..))
+import           Data.Typeable
 import           Control.Monad.Free
 import           Control.Applicative
 import           Control.Lens hiding (both, coerce)
 import           Control.Monad.RWS.Strict hiding (listen)
+import qualified Control.Monad.RWS.Strict as State
 import           Data.IORef
 import           Debug.Trace
                  
@@ -30,15 +86,15 @@ import           FRP.Sodium hiding (merge, accum)
 import qualified FRP.Sodium as S
 import qualified FRP.Sodium.Context as SC
 import           Control.Monad.State.Strict
-import Render.Halo                
+import           Render.Halo
 import qualified Render.Halo as H
 
-import Language.Haskell.Interpreter hiding (lift)
 import qualified Language.Haskell.Interpreter as I
-import Language.Haskell.Interpreter.Unsafe
-                 
+import           Language.Haskell.Interpreter hiding (lift)
+import           Language.Haskell.Interpreter.Unsafe
+       
 accum :: a -> Event (a -> a) -> Reactive (Behavior a)                 
-accum z efa = S.accum z $ split . coalesce mappend . fmap (:[]) $ efa
+accum z efa = S.accum z . split . coalesce mappend . fmap (:[]) $ efa
 
 type EntityId = Int
 type Component a = Map.Map EntityId a
@@ -59,11 +115,17 @@ data Player =
      PlayerOne
      | PlayerTwo
      deriving (Eq, Ord, Show)
+     
+data LookEvent = 
+  LookAt (Float, Float)
+  | StopLookAt
 
 -- type WorldWire a b = Sys.WorldWire BoomWorld a b
 data BoomWorldInput = BoomWorldInput
   { _bwMoveEvents :: Event (MoveEvent Move)
   , _bwSendMoveEvent :: MoveEvent Move -> Reactive ()
+  , _bwLookAtEvent :: Event LookEvent
+  , _bwSendLookAtEvent :: LookEvent -> Reactive ()
   , _bwFire :: Event FireEvent
   , _bwSendFire :: FireEvent -> Reactive ()
   , _bwTick :: Event Float
@@ -75,13 +137,10 @@ newBoomWorldInput = sync $ do
   (me, sme) <- newEvent
   (fe, sfe) <- newEvent
   (te, ste) <- newEvent
-  return $ BoomWorldInput me sme fe sfe te ste
+  (la, sla) <- newEvent
+  return $ BoomWorldInput me sme la sla fe sfe te ste
   
-newBoomWorld :: IO (Behavior BoomWorld, BoomWorld -> Reactive ())
-newBoomWorld = do
-  input <- newBoomWorldInput
-
-  sync $ newBehavior $ BoomWorld (Map.fromList [(1, (0, 0))]) Map.empty Map.empty newOctree never input 2 []
+-- type RenderInfo = (SpriteRenderUnit, 
 
 data BoomWorld = BoomWorld
   { _bPositions :: Component (Float, Float)
@@ -108,16 +167,27 @@ data BoomWorldDelta' next =
   | DeltaSpawn (EntityId -> Reactive ()) (EntityId -> next)
   | DeltaRemoveEntity EntityId next
   | DeltaId next
+  | DeltaRenderAdd EntityId ((EntityId, SpriteInstanceId) -> Reactive ()) (RenderControl SpriteInstanceId) (SpriteInstanceId -> next)
+  | DeltaRender (RenderControl ()) next
   deriving (Functor, Typeable) 
   
 data BoomWorldDeltaApplied =
   DeltaMove' EntityId (Float, Float)
   | DeltaRotate' EntityId Float
   | DeltaBoundary' EntityId (Float, Float)
-  | DeltaSpawn' EntityId
+  | DeltaSpawn' EntityId (EntityId -> Reactive ())
   | DeltaRemoveEntity' EntityId
-  deriving (Show)
+  | DeltaRenderControl' (RenderControl ())
+  | DeltaNewSpriteId' (EntityId, SpriteInstanceId) ((EntityId, SpriteInstanceId) -> Reactive ())
   
+instance Show BoomWorldDeltaApplied where
+  show (DeltaMove' eId pos) = show ("DeltaMove'", eId, pos)
+  show (DeltaRotate' eId pos) = show ("DeltaRotate'", eId, pos)
+  show (DeltaBoundary' eId pos) = show ("DeltaBoundary'", eId, pos)
+  show (DeltaSpawn' eId _) = show ("DeltaSpawn'", eId)
+  show (DeltaRemoveEntity' eId) = show ("DeltaRemoveEntity'", eId)
+  show _ = "Delta"
+ 
 instance Show a => Show (BoomWorldDelta' a) where
   show ((DeltaMove eId pos n)) = "DeltaMove " ++ show (eId, pos) ++ "\n" ++ show n
   show ((DeltaRotate eId pos n)) = "DeltaRotate " ++ show (eId, pos) ++ "\n" ++ show n
@@ -125,12 +195,17 @@ instance Show a => Show (BoomWorldDelta' a) where
   show ((DeltaSpawn _ g)) = "DeltaSpawn\n" ++ show (g 0)
   show ((DeltaRemoveEntity eId n)) = "DeltaRemoveEntity " ++ show (eId) ++ "\n" ++ show n
   show ((DeltaId n)) = show n
+  show _ = "Delta"
 
 data EntityData = EntityData
   { _p1Sprites :: (SpriteInstanceId, SpriteInstanceId, SpriteInstanceId)
   , _p2Sprites :: (SpriteInstanceId, SpriteInstanceId, SpriteInstanceId)
   , _edBullets :: Map.Map EntityId SpriteInstanceId
   }
+
+data EntityManager = EntityManager
+  { _emNextEntityId :: EntityId
+  } deriving Show
      
 data Game = Game
      { _gameWorlds        :: !(Map.Map Player (Behavior BoomWorld))
@@ -139,8 +214,11 @@ data Game = Game
      , _gameRenderManager :: !RenderManager
      , _gameRenderer      :: !Renderer
      , _gameEntityData :: !(Maybe EntityData)
+     , _gameEntityManager :: !(EntityManager)
      }
-     
+ 
+makeLenses ''EntityManager
+ 
 makeLenses ''Game
 makeLenses ''EntityData
 
@@ -150,131 +228,141 @@ instance Show Game where
 deltaId :: BoomWorldDelta ()
 deltaId = liftF (DeltaId ())
   
-type BoomWorldDelta a = Free (BoomWorldDelta') a
+type BoomWorldDelta = Free BoomWorldDelta'
 deltaMove :: EntityId -> (Float, Float) -> BoomWorldDelta ()
 deltaMove eId pos = liftF (DeltaMove eId pos ())
+          
+deltaRotate :: EntityId -> Float -> BoomWorldDelta ()
+deltaRotate eId rot = liftF (DeltaRotate eId rot ())
 
 spawnEntity :: (EntityId -> Reactive ()) -> BoomWorldDelta EntityId          
 spawnEntity pushId = liftF (DeltaSpawn pushId id)
             
 removeEntity :: EntityId -> BoomWorldDelta ()          
 removeEntity eId = liftF (DeltaRemoveEntity eId ())
+             
+deltaRenderAdd eId pushId rc = liftF (DeltaRenderAdd eId pushId rc id)
+deltaRender rc = liftF (DeltaRender rc ())
 
 makeLenses ''BoomWorld
 makeLenses ''BoomWorldInput
                
 merge a b = split . coalesce mappend . fmap (:[]) $ S.merge a b
 merge3 a b c = split . coalesce mappend . fmap (:[]) $ S.merge (S.merge a b) c
+merge4 a b c d = split . coalesce mappend . fmap (:[]) $ S.merge (S.merge (S.merge a b) c) d
  
 add (x, y) (x0, y0) = (x + x0, y + y0)
  
-handleEvents :: [BoomWorldDeltaApplied] -> [BoomWorldDeltaApplied] -> StateT Game RenderControl ()
-handleEvents  eventList1 eventList2 = do
-  mapM_ handleEvent1 eventList1
-  mapM_ handleEvent2 eventList2
-  -- return $ rc1 >> rc2
-  where
-    handleEvent1 ((DeltaMove' 1 (pos))) = do
-      (EntityData (p1Body, p1Feet, p1Gun) (p2Body, p2Feet, p2Gun) _) <- use $ gameEntityData.to fromJust
-      lift $ do
-        move p1Feet pos
-        move p1Gun pos
-        move p1Body pos
-  
-    handleEvent1 ((DeltaRotate' 1 (rot))) = do
-      (EntityData (p1Body, p1Feet, p1Gun) (p2Body, p2Feet, p2Gun) _) <- use $ gameEntityData.to fromJust
-      lift $ H.rotate p1Gun rot
+flattenDelta :: BoomWorldDelta a -> State (EntityManager, Renderer) [BoomWorldDeltaApplied]
+flattenDelta d@(Free (DeltaMove eId pos n)) = do
+    rc <- flattenDelta n
+    return $ (DeltaMove' eId pos) : rc
 
-    handleEvent1 ((DeltaSpawn' eId)) = do
-      spriteInst <- lift $ do
-        ru <- getSpriteRenderUnit "Bullets"
-        sprite <- getSprite "boom" "bullet"
-        addSprite ru sprite (0, 0) 0
-      gameEntityData._Just.edBullets %= Map.insert eId spriteInst
-      return ()
-  
-    handleEvent1 ((DeltaMove' eId pos)) = do
-      Just spriteInst <- use $ gameEntityData.to fromJust.edBullets.at eId
-      lift $ move (spriteInst) pos
-  
-    handleEvent1 ((DeltaRemoveEntity' eId)) = do
-      Just spriteInst <- use $ gameEntityData.to fromJust.edBullets.at eId
-      return () 
-  
-    handleEvent1 _ = return ()
-  
-    handleEvent2 ((DeltaMove' 1 (pos))) = do
-      (EntityData (p1Body, p1Feet, p1Gun) (p2Body, p2Feet, p2Gun) _) <- use $ gameEntityData.to fromJust
-      lift $ do
-        move p2Feet pos
-        move p2Gun pos
-        move p2Body pos
+flattenDelta d@(Free (DeltaRotate eId rot n)) = do
+    rc <- flattenDelta n 
+    return $ (DeltaRotate' eId rot) : rc
 
-    handleEvent2 _ = return ()
+flattenDelta d@(Free (DeltaBoundary eId boundary n)) = do
+    rc <- flattenDelta n 
+    return $ (DeltaBoundary' eId boundary) : rc
 
-applyDelta :: BoomWorldDelta () -> BoomWorldDelta () 
+flattenDelta d@(Free (DeltaSpawn r g)) = do
+    eId <- use $ _1.emNextEntityId
+    _1.emNextEntityId += 1
+    rc <- flattenDelta (g eId) 
+    return $ (DeltaSpawn' eId r) : rc
+
+flattenDelta  d@(Free (DeltaRemoveEntity eId n)) = do
+    rc <- flattenDelta n
+    return $ (DeltaRemoveEntity' eId) : rc
+
+flattenDelta  d@(Free (DeltaId n)) = do
+    rc <- flattenDelta n
+    return $ rc
+    
+flattenDelta d@(Free (DeltaRenderAdd eId pushRea rc f))= do
+    renderer <- use _2
+    let (rcResult, renderer') = runState (getRenderControlResult rc) renderer
+    _2 .= renderer'
+    res <- flattenDelta (f rcResult) 
+    return $ (DeltaNewSpriteId' (eId, rcResult) pushRea):(DeltaRenderControl' (void rc)):res
+
+flattenDelta (Free (DeltaRender rc n)) = do
+    res <- flattenDelta n              
+    return $ (DeltaRenderControl' rc):res
+
+flattenDelta  d@(Pure _) = do
+    return []
+
+applyDelta :: [BoomWorldDeltaApplied] -> [BoomWorldDeltaApplied]
            -> BoomWorld -> BoomWorld
-           -> (BoomWorld, BoomWorld, StateT Game RenderControl ()) -- (BoomWorld, BoomWorld)
+           -> (BoomWorld, BoomWorld, RenderControl ()) -- (BoomWorld, BoomWorld)
 
-applyDelta changeList1 changeList2 bw1 bw2 = (bw1', bw2', do
-  handleEvents deltaApplied1 deltaApplied2
-  return ())
+applyDelta changeList1 changeList2 bw1 bw2 = (bw1', bw2',
+  --handleEvents changeList1 changeList2
+  foldr (>>) (Pure ()) . catMaybes . map collectRC $ changeList1 ++ changeList2
+  )
+  --return ())
+
   where
-    (deltaApplied1, bw1') = runState (applyDelta' changeList1) bw1
-    (deltaApplied2, bw2') = runState (applyDelta' changeList2) bw2
-    applyDelta' d@(Free (DeltaMove id pos n)) = do
-      bPositions %= Map.update (\oldPos -> Just (add oldPos pos)) id
-      rc <- applyDelta' n
-      return $ (DeltaMove' id pos) : rc
+    collectRC (DeltaRenderControl' rc) = Just rc
+    collectRC _ = Nothing
+    (_, bw1') = runState (mapM_ applyDelta' changeList1) bw1
+    (_, bw2') = runState (mapM_ applyDelta' changeList2) bw2
+    applyDelta' :: BoomWorldDeltaApplied -> State BoomWorld ()
+    applyDelta' d@((DeltaMove' id pos)) = do
+      let mod (Just oldPos) = Just $ add oldPos pos
+          mod (Nothing) = Just pos
+      bPositions %= Map.alter mod id
 
-    applyDelta' d@(Free (DeltaRotate eId rot n)) = do
-      return ()
-      rc <- applyDelta' n
-      return $ (DeltaRotate' eId rot) : rc
+    applyDelta' d@((DeltaRotate' eId rot)) = do
+      let mod (Just oldRot) = Just $ oldRot + rot
+          mod (Nothing) = Just rot
+      bRotations %= Map.alter mod eId
 
-    applyDelta' d@(Free (DeltaBoundary eId boundary n)) = do
-      return ()
-      rc <- applyDelta' n
-      return $ (DeltaBoundary' eId boundary) : rc
+    applyDelta' d@((DeltaBoundary' eId boundary)) = do
+     return ()
 
-    applyDelta' d@(Free (DeltaSpawn r g)) = do
-      eId <- use $ bNextEntityId
-      bNextEntityId += 1
+    applyDelta' d@((DeltaSpawn' eId r)) = do
       bPendingActions %= mappend [(r eId)]
-      rc <- applyDelta' (g eId)
-      return $ (DeltaSpawn' eId) : rc
+    
+    applyDelta' (DeltaNewSpriteId' sId r) = do
+      bPendingActions %= mappend [(r sId)]
   
-    applyDelta' d@(Free (DeltaRemoveEntity eId n)) = do
-      rc <- applyDelta' n
-      return $ (DeltaRemoveEntity' eId) : rc
+    applyDelta' (DeltaRenderControl' _) = do
+      return ()
   
-    applyDelta' d@(Free (DeltaId n)) = do
-      rc <- applyDelta' n
-      return $ rc
+    applyDelta' d@((DeltaRemoveEntity' eId)) = do
+      return ()
+  
+collisionSystem :: [BoomWorldDeltaApplied] -> RWS () [BoomWorldDeltaApplied] GameOctree ()
+collisionSystem deltas = mapM_ collisionSystem' deltas               
+  where
+    collisionSystem' :: BoomWorldDeltaApplied -> RWS () [BoomWorldDeltaApplied] GameOctree ()
+    collisionSystem' f@((DeltaMove' id (dx, dy))) = do
+      mObj <- use $ octreeObject id
+      case mObj of
+        Just obj -> do
+            let transaction = do
+                  octreeUpdate [obj & ooPosition %~ (\(x, y) -> (x + dx, y + dy))]
+                  octreeQueryObject id
+            octree <- State.get
+            let (collisions, newOctree) = runState transaction octree
+            if collisions == [] then do
+              put newOctree
+              tell $ [(DeltaMove' id (dx, dy))]
+            else
+              -- lift $ liftF (DeltaCollision collisions)
+              return ()
+        Nothing -> tell [(DeltaMove' id (dx, dy))]
+  
+    collisionSystem' s@(DeltaSpawn' eId _) = do
+      modify (execState $ octreeUpdateInsert [(eId, (0, 0), [(0, 5), (5, 5), (5, 0), (0, 0)])])
+      tell [s]
+      return ()
 
-    applyDelta' d@(Pure _) = do
-      return []
+    collisionSystem' delta = tell [delta]
         
--- test = do
---   (bw, pW) <- newBoomWorld
---   ev <- sync $ enterTheGame bw
---   w <- sync $ sample bw
---   r <- newIORef []
---   sync $ listen ev $ \delta -> do
---     writeIORef r delta
---   sync $ (w^.bInput.bwSendMoveEvent) (MoveEvent (5, 5))
---   sync $ (w^.bInput.bwSendFire) ()
---   sync $ (w^.bInput.bwSendTick) (16::Float)
-
---   delta <- readIORef r
---   let w' = execState (applyDelta delta) w
---   sync $ pW (w')
---   sync $ (w^.bInput.bwSendFire) ()
-
---   sync $ (w^.bInput.bwSendTick) (16::Float)
---   sync $ (w^.bInput.bwSendMoveEvent) (StopMoveEvent)
---   sync $ (w^.bInput.bwSendTick) (16::Float)
---   return ()
 run :: IO F
 run = do
   -- r <- runInterpreter initModule
@@ -284,48 +372,15 @@ run = do
     Left err -> do
       print err
       exitFailure
-      return $ const (WrapR $ return never)
+      return $ const (WrapR $ return (never, const (return ())))
     Right func -> 
       return $ func
 
 newtype WrapB = WrapB { unWrapB :: Behavior BoomWorld } deriving (Typeable)
-newtype WrapR = WrapR { unWrapR :: Reactive (Event (BoomWorldDelta ())) } deriving (Typeable)
+newtype WrapR = WrapR { unWrapR :: Reactive (Event (BoomWorldDelta ()), () -> Reactive ()) } deriving (Typeable)
 type F = WrapB -> WrapR
      
-data GameFRP = GameFRP
-  { gameFRP :: F
-  , unlistener1 :: IO ()
-  , unlistener2 :: IO ()
-  }
-  
--- initGame :: Behavior BoomWorld -> Behavior BoomWorld -> IO GameFRP
-initGame vDelta1 vDelta2 bw1 bw2 = do
-  func <- enterTheGame'
-  deltaEv <- sync $ unWrapR $ func (WrapB bw1)
-  deltaEv2 <- sync $ unWrapR $ func (WrapB bw2)
-  
-  unlistener1 <- sync $ do
-    S.listen deltaEv (\delta -> do
-      modifyIORef vDelta1 (\old -> old >> delta)
-      )
 
-  unlistener2 <- sync $ do
-    S.listen deltaEv2 (\delta -> do
-      modifyIORef vDelta2 (\old -> old >> delta) 
-      )
-  
-  return GameFRP
-    { gameFRP = func
-    , unlistener1 = unlistener1
-    , unlistener2 = unlistener2
-    }
-    
-reloadGame vDelta1 vDelta2 bw1 bw2 frp = do
-  unlistener1 frp
-  unlistener2 frp
-  
-  initGame vDelta1 vDelta2 bw1 bw2
-  
 initModule :: Interpreter F
 initModule = do
   I.set [languageExtensions := 
@@ -339,4 +394,19 @@ initModule = do
   -- let fun = const (return never) :: F
   return t
 
-enterTheGame' = run
+  
+newBoomWorld :: IO (Behavior BoomWorld, BoomWorld -> Reactive ())
+newBoomWorld = do
+  input <- newBoomWorldInput
+
+  sync . newBehavior $ BoomWorld (Map.fromList [(1, (0, 0))]) Map.empty Map.empty newOctree never input 2 []
+  
+  where
+    initialCommands = do
+      eId <- spawnEntity (const (return ()))
+      _ <- deltaMove eId (20, 20)
+      return ()
+
+mergeAll :: [Event a] -> Event a
+mergeAll events = S.split $ fmap (:[]) $ foldr (S.merge) never events
+ 
